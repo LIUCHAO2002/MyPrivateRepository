@@ -5,7 +5,7 @@
 #include <QMenu>
 #include <QInputDialog>
 #include <cmath>
-#include <Qt>
+#include <qDebug>
 
 NetworkCanvas::NetworkCanvas(QWidget *parent)
     : QWidget(parent), m_gridSize(50), // 默认网格大小50像素
@@ -140,7 +140,10 @@ void NetworkCanvas::mousePressEvent(QMouseEvent *event)
             m_draggedNode = clickedNode;
             emit nodeSelected(clickedNode);
             update();
-            return;
+            if (!m_linkStartNode)
+            {
+                return;
+            }
         }
 
         // 检查是否点击了链路
@@ -300,12 +303,12 @@ QPoint NetworkCanvas::snapToGrid(const QPoint &pos) const
     return QPoint(x, y);
 }
 
-ClientNode *NetworkCanvas::findNodeAt(const QPoint &gridPos) const
+ClientNode *NetworkCanvas::findNodeAt(const QPoint &pos) const
 {
     // 节点在画布上的实际绘制半径（15像素，与paintEvent中保持一致）
     const int nodeRadius = 15;
     // 将网格坐标转换为实际像素坐标
-    QPoint pixelPos = gridPos * m_gridSize;
+    QPoint pixelPos = pos * m_gridSize;
 
     foreach (ClientNode *node, m_nodes)
     {
@@ -314,9 +317,8 @@ ClientNode *NetworkCanvas::findNodeAt(const QPoint &gridPos) const
 
         // 节点中心的像素坐标
         QPoint nodePixelPos = node->position() * m_gridSize;
-
         // 计算点击位置与节点中心的距离（像素单位）
-        double dist = distance(gridPos, nodePixelPos);
+        double dist = distance(pos, nodePixelPos);
 
         // 如果距离小于节点半径，则视为选中该节点
         if (dist <= nodeRadius)

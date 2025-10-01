@@ -19,6 +19,7 @@ public:
 
     // 获取节点ID
     QString id() const { return m_id; }
+    void setId(const QString &id) { m_id = id; }
 
     // 处理能力相关
     double processingCapability() const { return m_processingCapability; }
@@ -47,7 +48,7 @@ public:
 private:
     QPoint m_position;
     QString m_id;
-    static int m_nextId;  // 静态变量用于自增ID
+    static int m_nextId;            // 静态变量用于自增ID
     QString m_name;                 // 节点名称
     double m_storageCapacity;       // 存储容量
     double m_processingCapability;  // 计算能力

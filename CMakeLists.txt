@@ -41,7 +41,7 @@ set(HEADERS
 )
 
 # 创建可执行文件
-add_executable(app
+add_executable(app WIN32
     ${SOURCES}
     ${HEADERS}
 )

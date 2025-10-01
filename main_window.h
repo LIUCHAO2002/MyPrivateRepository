@@ -16,23 +16,33 @@ public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
+protected:
+    void closeEvent(QCloseEvent *event) override;
+
 private slots:
-    void onNodeSelected(ClientNode* node);
-    void onLinkSelected(Link* link);
+    void onNodeSelected(ClientNode *node);
+    void onLinkSelected(Link *link);
     void onNothingSelected();
     void onGridSizeChanged();
-    void onItemEdited(QTreeWidgetItem* item, int column);
+    void onItemEdited(QTreeWidgetItem *item, int column);
+    void onSaveFile();   // 保存文件
+    void onSaveAsFile(); // 另存为
+    void onOpenFile();   // 打开文件
 
 private:
     void createMenus();
-    void updatePropertyView(ClientNode* node);
-    void updatePropertyView(Link* link);
+    void updatePropertyView(ClientNode *node);
+    void updatePropertyView(Link *link);
     void clearPropertyView();
+    bool saveFile(const QString &fileName); // 实际保存函数
+    bool loadFile(const QString &fileName); // 加载函数
+    bool maybeSave();                       // 退出前检查是否需要保存
 
-    NetworkCanvas* m_canvas;
-    QTreeWidget* m_propertyView;
-    QAction* m_gridSizeAction;
+    NetworkCanvas *m_canvas;
+    QTreeWidget *m_propertyView;
+    QAction *m_gridSizeAction;
+    QString m_currentFileName; // 当前文件名
+    bool m_isModified;         // 文件是否被修改
 };
 
 #endif // MAIN_WINDOW_H
-    
