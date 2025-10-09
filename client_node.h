@@ -45,6 +45,9 @@ public:
     double stability() const { return m_stability; }
     void setStability(double stability) { m_stability = stability; }
 
+    double dataRatio() const { return m_dataRatio; }
+    void setDataRatio(double ratio) { m_dataRatio = qBound(0.0, ratio, 1.0); }
+
 private:
     QPoint m_position;
     QString m_id;
@@ -56,6 +59,7 @@ private:
     double m_transceiverCapability; // 收发处理能力
     double m_loadStatus;            // 负载状态
     double m_stability;             // 稳定性
+    double m_dataRatio;
 };
 
 #endif // CLIENT_NODE_H

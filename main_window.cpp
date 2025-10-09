@@ -51,6 +51,8 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(m_canvas, &NetworkCanvas::contentModified, this, [this]()
             { m_isModified = true; });
+
+    showMaximized();
 }
 
 MainWindow::~MainWindow()
@@ -88,11 +90,23 @@ void MainWindow::createMenus()
     connect(m_gridSizeAction, &QAction::triggered, this, &MainWindow::onGridSizeChanged);
     viewMenu->addAction(m_gridSizeAction);
 
+    QAction *clearAction = new QAction("清空", this);
+    connect(clearAction, &QAction::triggered, this, &MainWindow::onClearAll);
+    viewMenu->addAction(clearAction);
+
     // 创建仿真菜单
     QMenu *simulationMenu = menuBar()->addMenu("仿真");
 
     // 仿真菜单选项
     QAction *dataTransAction = new QAction("数据传输", this);
+    dataTransAction->setCheckable(true);
+    connect(dataTransAction, &QAction::toggled, this, [this](bool checked) {
+        if (checked) {
+            m_canvas->generateRandomConnectedGraph(); // 生成连通图
+        } else {
+            m_canvas->clearAll(); // 取消勾选时清空
+        }
+    });
     simulationMenu->addAction(dataTransAction);
 
     QAction *faultHandleAction = new QAction("故障处理", this);
@@ -187,6 +201,10 @@ void MainWindow::onItemEdited(QTreeWidgetItem *item, int column)
         {
             node->setStability(qBound(0.0, value, 1.0));
         }
+        else if (property == "数据比例(0-1)")
+        {
+            node->setDataRatio(qBound(0.0, value, 1.0));
+        }
     }
     // 更新链路属性
     else if (m_canvas->selectedLink())
@@ -259,6 +277,12 @@ void MainWindow::updatePropertyView(ClientNode *node)
     stableItem->setText(1, QString::number(node->stability()));
     stableItem->setFlags(stableItem->flags() | Qt::ItemIsEditable);
     m_propertyView->addTopLevelItem(stableItem);
+
+    QTreeWidgetItem *dataRatioItem = new QTreeWidgetItem();
+    dataRatioItem->setText(0, "数据比例(0-1)");
+    dataRatioItem->setText(1, QString::number(node->dataRatio()));
+    dataRatioItem->setFlags(dataRatioItem->flags() | Qt::ItemIsEditable);
+    m_propertyView->addTopLevelItem(dataRatioItem);
 
     m_propertyView->resizeColumnToContents(0);
 }
@@ -554,5 +578,22 @@ void MainWindow::closeEvent(QCloseEvent *event)
     else
     {
         event->ignore();
+    }
+}
+
+void MainWindow::onClearAll()
+{
+    // 确认对话框，防止误操作
+    QMessageBox::StandardButton reply;
+    reply = QMessageBox::question(this, "确认清空", 
+                                 "确定要清除所有节点和链路吗？",
+                                 QMessageBox::Yes | QMessageBox::No);
+    
+    if (reply == QMessageBox::Yes)
+    {
+        m_canvas->clearAll(); // 调用画布的清空方法
+        clearPropertyView();  // 清空属性视图
+        m_propertyView->setHeaderLabel("未选择任何对象");
+        m_isModified = true;  // 标记文件已修改
     }
 }

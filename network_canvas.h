@@ -28,6 +28,8 @@ public:
     // 添加节点和链路（用于加载文件）
     void addNodeFromFile(ClientNode* node) { m_nodes.append(node); }
     void addLink(Link* link) { m_links.append(link); }
+
+    void generateRandomConnectedGraph();
     
     // 清空所有数据
     void clearAll() {
@@ -70,6 +72,10 @@ private:
     bool m_draggingNode;
     ClientNode *m_draggedNode;
     ClientNode *m_linkStartNode;
+
+    QVector<ClientNode*> generateRandomNodes(int count);
+    void generateSpanningTree(QVector<ClientNode*> &nodes);
+    void addRandomExtraLinks(QVector<ClientNode*> &nodes, int extraCount);
 };
 
 #endif // NETWORK_CANVAS_H

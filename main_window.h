@@ -28,6 +28,7 @@ private slots:
     void onSaveFile();   // 保存文件
     void onSaveAsFile(); // 另存为
     void onOpenFile();   // 打开文件
+    void onClearAll(); 
 
 private:
     void createMenus();

@@ -12,7 +12,8 @@ ClientNode::ClientNode(int x, int y)
       m_accessFrequency(100.0),     // 默认100次/分钟
       m_transceiverCapability(1000.0), // 默认1000Mbps
       m_loadStatus(0.3),            // 默认30%负载
-      m_stability(0.95)             // 默认95%稳定性
+      m_stability(0.95),             // 默认95%稳定性
+      m_dataRatio(0.0)
 {
 }
 

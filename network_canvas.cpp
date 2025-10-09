@@ -4,6 +4,7 @@
 #include <QContextMenuEvent>
 #include <QMenu>
 #include <QInputDialog>
+#include <QRandomGenerator>
 #include <cmath>
 #include <qDebug>
 
@@ -113,7 +114,27 @@ void NetworkCanvas::paintEvent(QPaintEvent *event)
         }
         else
         {
-            painter.setBrush(Qt::green);
+            // 根据数据比例调整颜色
+            double dataRatio = node->dataRatio();
+            if (dataRatio <= 0)
+            {
+                // 数据比例为0时使用默认绿色
+                painter.setBrush(QColor(150, 150, 150));
+            }
+            else
+            {
+                // 同色系（蓝色系）设置：固定色相=240（纯蓝）
+                int hue = 240;
+                // 饱和度固定为200（保证蓝色纯度）
+                int saturation = 200;
+                // 亮度随比例变化：比例越大，亮度越低（颜色越深）
+                // 亮度范围：0.0→220（最浅蓝），1.0→120（最深蓝），线性过渡
+                int lightness = 220 - static_cast<int>(std::min(std::round(dataRatio * 10), 10.0)) * 10;
+
+                QColor color;
+                color.setHsl(hue, saturation, lightness);
+                painter.setBrush(color);
+            }
         }
 
         painter.setPen(QPen(Qt::black, 2));
@@ -352,4 +373,134 @@ Link *NetworkCanvas::findLinkAt(const QPoint &pos) const
 double NetworkCanvas::distance(const QPoint &p1, const QPoint &p2) const
 {
     return std::sqrt(std::pow(p1.x() - p2.x(), 2) + std::pow(p1.y() - p2.y(), 2));
+}
+
+// 生成随机连通图（5-15个节点，基础树+随机额外链路）
+void NetworkCanvas::generateRandomConnectedGraph()
+{
+    clearAll(); // 先清空现有内容
+
+    // 随机生成5-15个节点
+    int nodeCount = QRandomGenerator::global()->bounded(0, 10);
+    auto nodes = generateRandomNodes(nodeCount);
+    m_nodes = nodes;
+
+    // 生成最小生成树（保证连通性）
+    generateSpanningTree(nodes);
+
+    // 随机添加额外链路（0到节点数-1条）
+    int extraLinks = QRandomGenerator::global()->bounded(nodeCount);
+    addRandomExtraLinks(nodes, extraLinks);
+
+    update(); // 重绘
+    emit contentModified();
+}
+
+// 生成随机节点（避免重叠）
+QVector<ClientNode *> NetworkCanvas::generateRandomNodes(int count)
+{
+    QVector<ClientNode *> nodes;
+    int maxX = (width() / m_gridSize) - 2; // 边界留出1格
+    int maxY = (height() / m_gridSize) - 2;
+
+    for (int i = 0; i < count; ++i)
+    {
+        // 随机位置（确保不超出画布且不重叠）
+        while (true)
+        {
+            int x = QRandomGenerator::global()->bounded(1, maxX);
+            int y = QRandomGenerator::global()->bounded(1, maxY);
+            QPoint pos(x, y);
+
+            // 检查是否与已有节点重叠
+            bool overlap = false;
+            foreach (auto node, nodes)
+            {
+                if (node->position() == pos)
+                {
+                    overlap = true;
+                    break;
+                }
+            }
+            if (!overlap)
+            {
+                nodes.append(new ClientNode(x, y));
+                break;
+            }
+        }
+    }
+    return nodes;
+}
+
+// 生成最小生成树（Prim算法简化版）
+void NetworkCanvas::generateSpanningTree(QVector<ClientNode *> &nodes)
+{
+    if (nodes.size() < 2)
+        return;
+
+    QVector<bool> inTree(nodes.size(), false);
+    inTree[0] = true; // 从第一个节点开始
+
+    // 逐步将所有节点加入树
+    for (int i = 1; i < nodes.size(); ++i)
+    {
+        // 随机选择一个已在树中的节点和一个未在树中的节点连接
+        int fromIdx, toIdx;
+        do
+        {
+            fromIdx = QRandomGenerator::global()->bounded(nodes.size());
+            toIdx = QRandomGenerator::global()->bounded(nodes.size());
+        } while (inTree[fromIdx] == inTree[toIdx]); // 确保一个在树内一个在树外
+
+        // 保证from在树内，to在树外
+        if (!inTree[fromIdx])
+            std::swap(fromIdx, toIdx);
+
+        // 创建链路
+        Link *link = new Link(nodes[fromIdx], nodes[toIdx]);
+        // 随机设置链路属性
+        link->setBandwidth(500 + QRandomGenerator::global()->bounded(1500)); // 500-2000Mbps
+        link->setCongestion(QRandomGenerator::global()->bounded(0.5));       // 0-50%拥塞
+        m_links.append(link);
+
+        inTree[toIdx] = true; // 将新节点加入树
+    }
+}
+
+// 随机添加额外链路（不重复）
+void NetworkCanvas::addRandomExtraLinks(QVector<ClientNode *> &nodes, int extraCount)
+{
+    if (nodes.size() < 2 || extraCount <= 0)
+        return;
+
+    for (int i = 0; i < extraCount; ++i)
+    {
+        // 随机选择两个不同节点
+        int idx1, idx2;
+        do
+        {
+            idx1 = QRandomGenerator::global()->bounded(nodes.size());
+            idx2 = QRandomGenerator::global()->bounded(nodes.size());
+        } while (idx1 == idx2);
+
+        // 检查链路是否已存在
+        bool exists = false;
+        foreach (auto link, m_links)
+        {
+            if ((link->node1() == nodes[idx1] && link->node2() == nodes[idx2]) ||
+                (link->node1() == nodes[idx2] && link->node2() == nodes[idx1]))
+            {
+                exists = true;
+                break;
+            }
+        }
+        if (exists)
+            continue;
+
+        // 创建新链路
+        Link *link = new Link(nodes[idx1], nodes[idx2]);
+        link->setBandwidth(500 + QRandomGenerator::global()->bounded(1500));
+        link->setCongestion(QRandomGenerator::global()->bounded(0.8)); // 0-80%拥塞
+        m_links.append(link);
+    }
 }
