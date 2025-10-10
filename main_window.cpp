@@ -1,4 +1,5 @@
 #include "main_window.h"
+#include "monte_carlo_path_finder.h"
 #include <QMenuBar>
 #include <QMenu>
 #include <QInputDialog>
@@ -15,6 +16,8 @@
 #include <QJsonArray>
 #include <QDateTime>
 #include <QTextStream>
+#include <QStatusBar>
+#include <QQueue>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -25,6 +28,12 @@ MainWindow::MainWindow(QWidget *parent)
     // 创建中心部件和布局
     QWidget *centralWidget = new QWidget(this);
     QHBoxLayout *mainLayout = new QHBoxLayout(centralWidget);
+    mainLayout->setSpacing(5);
+
+    QWidget *leftWidget = new QWidget(this);
+    QVBoxLayout *leftLayout = new QVBoxLayout(leftWidget);
+    leftLayout->setContentsMargins(5, 5, 5, 5);
+    leftLayout->setSpacing(5);
 
     // 创建属性视图
     m_propertyView = new QTreeWidget(this);
@@ -32,7 +41,12 @@ MainWindow::MainWindow(QWidget *parent)
                                                   << "值");
     m_propertyView->setAlternatingRowColors(true);                     // 交替行颜色
     m_propertyView->setEditTriggers(QAbstractItemView::DoubleClicked); // 双击编辑
-    mainLayout->addWidget(m_propertyView, 1);                          // 占1/4宽度
+    leftLayout->addWidget(m_propertyView, 1);                          // 占1/4宽度
+
+    QWidget *pathSearchWidget = new QWidget(this);
+    leftLayout->addWidget(pathSearchWidget, 2);
+
+    mainLayout->addWidget(leftWidget, 1);
 
     // 创建画布
     m_canvas = new NetworkCanvas(this);
@@ -51,6 +65,14 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(m_canvas, &NetworkCanvas::contentModified, this, [this]()
             { m_isModified = true; });
+
+    m_statusLabel = new QLabel(this);
+    m_statusLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    m_statusLabel->setMinimumHeight(20);
+    m_statusLabel->setText("就绪");
+
+    statusBar()->addWidget(m_statusLabel, 1);
+    statusBar()->setStyleSheet("QStatusBar::item { border: none; }");
 
     showMaximized();
 }
@@ -80,6 +102,12 @@ void MainWindow::createMenus()
 
     fileMenu->addSeparator(); // 添加分隔线
 
+    QAction *exportDataAction = new QAction("导出强化学习训练数据", this);
+    connect(exportDataAction, &QAction::triggered, this, &MainWindow::onExportTrainingData);
+    fileMenu->addAction(exportDataAction);
+
+    fileMenu->addSeparator(); // 添加分隔线
+
     QAction *exitAction = new QAction("退出", this);
     connect(exitAction, &QAction::triggered, this, &MainWindow::close);
     fileMenu->addAction(exitAction);
@@ -99,14 +127,10 @@ void MainWindow::createMenus()
 
     // 仿真菜单选项
     QAction *dataTransAction = new QAction("数据传输", this);
+    dataTransAction->setObjectName("dataTransAction");
     dataTransAction->setCheckable(true);
-    connect(dataTransAction, &QAction::toggled, this, [this](bool checked) {
-        if (checked) {
-            m_canvas->generateRandomConnectedGraph(); // 生成连通图
-        } else {
-            m_canvas->clearAll(); // 取消勾选时清空
-        }
-    });
+    dataTransAction->setShortcutContext(Qt::WindowShortcut);
+    connect(dataTransAction, &QAction::triggered, this, &MainWindow::onRefreshGraph);
     simulationMenu->addAction(dataTransAction);
 
     QAction *faultHandleAction = new QAction("故障处理", this);
@@ -585,15 +609,271 @@ void MainWindow::onClearAll()
 {
     // 确认对话框，防止误操作
     QMessageBox::StandardButton reply;
-    reply = QMessageBox::question(this, "确认清空", 
-                                 "确定要清除所有节点和链路吗？",
-                                 QMessageBox::Yes | QMessageBox::No);
-    
+    reply = QMessageBox::question(this, "确认清空",
+                                  "确定要清除所有节点和链路吗？",
+                                  QMessageBox::Yes | QMessageBox::No);
+
     if (reply == QMessageBox::Yes)
     {
         m_canvas->clearAll(); // 调用画布的清空方法
         clearPropertyView();  // 清空属性视图
         m_propertyView->setHeaderLabel("未选择任何对象");
-        m_isModified = true;  // 标记文件已修改
+        m_isModified = true; // 标记文件已修改
     }
+}
+
+void MainWindow::onRefreshGraph()
+{
+    // 获取数据传输动作（通过对象名查找，需先设置对象名）
+    QAction *dataTransAction = findChild<QAction *>("dataTransAction");
+    if (!dataTransAction)
+        return;
+
+    bool isChecked = dataTransAction->isChecked();
+    m_canvas->setDataTransferEnabled(isChecked);
+
+    // 仅在勾选状态下刷新
+    if (dataTransAction->isChecked())
+    {
+        m_canvas->generateRandomConnectedGraph(); // 重新生成连通图
+        m_statusLabel->setText("按下F5刷新");     // 状态栏提示
+        m_isModified = true;                      // 标记为已修改
+    }
+}
+
+void MainWindow::keyPressEvent(QKeyEvent *event)
+{
+    // 仅处理F5键
+    if (event->key() == Qt::Key_F5)
+    {
+        // 查找数据传输动作
+        QAction *dataTransAction = findChild<QAction *>("dataTransAction");
+        if (!dataTransAction)
+        {
+            QMainWindow::keyPressEvent(event); // 未找到动作，按默认处理
+            return;
+        }
+
+        // 仅在勾选状态下执行刷新
+        if (dataTransAction->isChecked())
+        {
+            m_canvas->generateRandomConnectedGraph();
+            m_statusLabel->setText("已刷新数据传输连通图");
+            m_isModified = true;
+        }
+        // 未勾选时不做任何操作（F5无效）
+        return;
+    }
+
+    // 其他按键按默认逻辑处理
+    QMainWindow::keyPressEvent(event);
+}
+
+void MainWindow::onExportTrainingData()
+{
+    const auto &nodes = m_canvas->getNodes();
+    if (nodes.isEmpty())
+    {
+        QMessageBox::warning(this, "导出失败", "无法导出数据：没有节点数据！");
+        return;
+    }
+
+    if (!isGraphConnected())
+    {
+        QMessageBox::warning(this, "导出失败", "无法导出数据：图不连通，请确保所有节点都相互连接！");
+        return;
+    }
+
+    QString fileName = QFileDialog::getSaveFileName(this, "导出训练数据", "",
+                                                    "JSON文件 (*.json);;所有文件 (*)");
+    if (fileName.isEmpty())
+        return;
+
+    if (exportDataToJson(fileName))
+    {
+        QMessageBox::information(this, "成功", "训练数据已导出到: " + fileName);
+    }
+    else
+    {
+        QMessageBox::warning(this, "失败", "无法导出训练数据");
+    }
+}
+
+// 实现JSON导出功能
+bool MainWindow::exportDataToJson(const QString &fileName)
+{
+    QJsonObject rlData;
+
+    QJsonObject stateDesc;
+    stateDesc["node_features"] = QJsonArray()
+                                 << "storage_capacity_norm"  // 归一化存储容量
+                                 << "computing_power_norm"   // 归一化计算能力
+                                 << "load_status"            // 负载状态（已在0-1范围）
+                                 << "stability"              // 稳定性（已在0-1范围）
+                                 << "access_frequency_norm"; // 归一化访问频率
+    stateDesc["link_features"] = QJsonArray()
+                                 << "bandwidth_norm" // 归一化带宽
+                                 << "congestion"     // 拥塞程度（已在0-1范围）
+                                 << "distance_norm"; // 归一化距离
+    rlData["state_description"] = stateDesc;
+
+    QJsonArray nodeFeatures;
+    // 先计算节点特征的最大值（用于归一化）
+    double maxStorage = 0, maxComputing = 0, maxAccess = 0;
+    for (ClientNode *node : m_canvas->getNodes())
+    {
+        maxStorage = qMax(maxStorage, node->storageCapacity());
+        maxComputing = qMax(maxComputing, node->computingPower());
+        maxAccess = qMax(maxAccess, node->accessFrequency());
+    }
+    // 收集每个节点的特征
+    for (ClientNode *node : m_canvas->getNodes())
+    {
+        QJsonObject nodeObj;
+        nodeObj["id"] = node->id();
+        // 归一化到[0,1]（避免除以0）
+        nodeObj["storage_capacity_norm"] = maxStorage > 0 ? node->storageCapacity() / maxStorage : 0;
+        nodeObj["computing_power_norm"] = maxComputing > 0 ? node->computingPower() / maxComputing : 0;
+        nodeObj["load_status"] = node->loadStatus(); // 已在0-1范围
+        nodeObj["stability"] = node->stability();    // 已在0-1范围
+        nodeObj["access_frequency_norm"] = maxAccess > 0 ? node->accessFrequency() / maxAccess : 0;
+        nodeFeatures.append(nodeObj);
+    }
+    rlData["nodes"] = nodeFeatures;
+
+    QJsonArray linkFeatures;
+    const auto &links = m_canvas->getLinks();
+    // 计算链路特征的最大值（用于归一化）
+    double maxBandwidth = 0, maxDistance = 0;
+    for (Link *link : links)
+    {
+        maxBandwidth = qMax(maxBandwidth, link->bandwidth());
+        maxDistance = qMax(maxDistance, link->distance());
+    }
+    // 收集每个链路的特征
+    for (Link *link : links)
+    {
+        QJsonObject linkObj;
+        linkObj["node1_id"] = link->node1()->id();
+        linkObj["node2_id"] = link->node2()->id();
+        // 归一化到[0,1]
+        linkObj["bandwidth_norm"] = maxBandwidth > 0 ? link->bandwidth() / maxBandwidth : 0;
+        linkObj["congestion"] = link->congestion(); // 已在0-1范围
+        linkObj["distance_norm"] = maxDistance > 0 ? link->distance() / maxDistance : 0;
+        linkFeatures.append(linkObj);
+    }
+    rlData["links"] = linkFeatures;
+
+    QJsonObject adjacencyList;
+    for (ClientNode *node : m_canvas->getNodes())
+    {
+        QJsonArray neighbors;
+        for (Link *link : links)
+        {
+            if (link->node1() == node)
+            {
+                neighbors.append(link->node2()->id());
+            }
+            else if (link->node2() == node)
+            {
+                neighbors.append(link->node1()->id());
+            }
+        }
+        adjacencyList[node->id()] = neighbors;
+    }
+    rlData["adjacency_list"] = adjacencyList;
+
+    QFile file(fileName);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
+    {
+        QMessageBox::warning(this, "导出失败", "无法写入文件：" + file.errorString());
+        return false;
+    }
+    QTextStream out(&file);
+    out << QJsonDocument(rlData).toJson(QJsonDocument::Indented);
+    file.close();
+
+    QMessageBox::information(this, "导出成功", "RL数据已导出至：" + fileName);
+
+    return true;
+}
+
+bool MainWindow::isGraphConnected()
+{
+    const auto &nodes = m_canvas->getNodes();
+    int nodeCount = nodes.size();
+
+    // 节点数为0或1时，默认视为连通
+    if (nodeCount <= 1)
+    {
+        return true;
+    }
+
+    // 构建邻接表：记录每个节点的邻居
+    QMap<ClientNode *, QList<ClientNode *>> adjacencyList;
+    for (ClientNode *node : nodes)
+    {
+        adjacencyList[node] = QList<ClientNode *>();
+    }
+
+    // 根据链路填充邻接表
+    const auto &links = m_canvas->getLinks();
+    for (Link *link : links)
+    {
+        ClientNode *node1 = link->node1();
+        ClientNode *node2 = link->node2();
+        adjacencyList[node1].append(node2);
+        adjacencyList[node2].append(node1); // 双向添加（无向图）
+    }
+
+    // BFS遍历标记可达节点
+    QSet<ClientNode *> visited;
+    QQueue<ClientNode *> queue;
+
+    // 从第一个节点开始遍历
+    ClientNode *startNode = nodes.first();
+    queue.enqueue(startNode);
+    visited.insert(startNode);
+
+    while (!queue.isEmpty())
+    {
+        ClientNode *current = queue.dequeue();
+        // 遍历当前节点的所有邻居
+        for (ClientNode *neighbor : adjacencyList[current])
+        {
+            if (!visited.contains(neighbor))
+            {
+                visited.insert(neighbor);
+                queue.enqueue(neighbor);
+            }
+        }
+    }
+
+    // 若所有节点都被访问，则图连通
+    return visited.size() == nodeCount;
+}
+
+void MainWindow::onFindOptimalPath()
+{
+    MonteCarloPathFinder finder(m_canvas);
+    QVector<ClientNode *> bestPath = finder.findBestPath();
+
+    if (bestPath.isEmpty())
+    {
+        QMessageBox::information(this, "路径搜索", "没有找到有效路径或没有目标节点");
+        return;
+    }
+
+    // 显示路径信息
+    QString pathInfo;
+    for (ClientNode *node : bestPath)
+    {
+        pathInfo += node->id().right(4) + " -> ";
+    }
+    pathInfo.chop(4); // 移除最后一个箭头
+
+    QMessageBox::information(this, "最佳路径",
+                             QString("找到最佳路径:\n%1\n节点数量: %2")
+                                 .arg(pathInfo)
+                                 .arg(bestPath.size()));
 }

@@ -39,8 +39,11 @@ public:
         m_nodes.clear();
         m_selectedNode = nullptr;
         m_selectedLink = nullptr;
+        ClientNode::resetNextId();
         update();
     }
+
+    void setDataTransferEnabled(bool enabled) { m_dataTransferEnabled = enabled; }
 
 signals:
     void nodeSelected(ClientNode *node);
@@ -72,6 +75,7 @@ private:
     bool m_draggingNode;
     ClientNode *m_draggedNode;
     ClientNode *m_linkStartNode;
+    bool m_dataTransferEnabled;
 
     QVector<ClientNode*> generateRandomNodes(int count);
     void generateSpanningTree(QVector<ClientNode*> &nodes);

@@ -48,6 +48,8 @@ public:
     double dataRatio() const { return m_dataRatio; }
     void setDataRatio(double ratio) { m_dataRatio = qBound(0.0, ratio, 1.0); }
 
+    static void resetNextId() { m_nextId = 0; }
+
 private:
     QPoint m_position;
     QString m_id;

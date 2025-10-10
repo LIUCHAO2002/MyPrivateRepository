@@ -30,6 +30,7 @@ set(SOURCES
     network_canvas.cpp
     client_node.cpp
     link.cpp
+    monte_carlo_path_finder.cpp
 )
 
 # 头文件列表
@@ -38,6 +39,7 @@ set(HEADERS
     network_canvas.h
     client_node.h
     link.h
+    monte_carlo_path_finder.h
 )
 
 # 创建可执行文件

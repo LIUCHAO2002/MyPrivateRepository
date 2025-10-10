@@ -12,7 +12,8 @@ NetworkCanvas::NetworkCanvas(QWidget *parent)
     : QWidget(parent), m_gridSize(50), // 默认网格大小50像素
       m_selectedNode(nullptr), m_selectedLink(nullptr),
       m_draggingNode(false), m_draggedNode(nullptr),
-      m_linkStartNode(nullptr)
+      m_linkStartNode(nullptr),
+      m_dataTransferEnabled(false)
 {
     setMinimumSize(600, 400);
     setContextMenuPolicy(Qt::CustomContextMenu);
@@ -381,7 +382,7 @@ void NetworkCanvas::generateRandomConnectedGraph()
     clearAll(); // 先清空现有内容
 
     // 随机生成5-15个节点
-    int nodeCount = QRandomGenerator::global()->bounded(0, 10);
+    int nodeCount = QRandomGenerator::global()->bounded(5, 15);
     auto nodes = generateRandomNodes(nodeCount);
     m_nodes = nodes;
 
@@ -416,7 +417,7 @@ QVector<ClientNode *> NetworkCanvas::generateRandomNodes(int count)
             bool overlap = false;
             foreach (auto node, nodes)
             {
-                if (node->position() == pos)
+                if (node->position() == pos || distance(node->position(), pos) < std::sqrt(std::pow(2, 2) + std::pow(2, 2)))
                 {
                     overlap = true;
                     break;
@@ -424,7 +425,19 @@ QVector<ClientNode *> NetworkCanvas::generateRandomNodes(int count)
             }
             if (!overlap)
             {
-                nodes.append(new ClientNode(x, y));
+                ClientNode *node = new ClientNode(x, y);
+
+                if (m_dataTransferEnabled)
+                {
+                    if (QRandomGenerator::global()->bounded(10) < 3)
+                    { // 30%概率
+                        double dataRatio = 0.1 + (QRandomGenerator::global()->generateDouble() * 0.9);
+                        node->setDataRatio(dataRatio);
+                    }
+                }
+
+                nodes.append(node);
+
                 break;
             }
         }
