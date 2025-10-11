@@ -1,5 +1,6 @@
 #include "main_window.h"
 #include "monte_carlo_path_finder.h"
+#include "bidirectional_astar_path_finder.h"
 #include <QMenuBar>
 #include <QMenu>
 #include <QInputDialog>
@@ -18,12 +19,17 @@
 #include <QTextStream>
 #include <QStatusBar>
 #include <QQueue>
+#include <QSpinBox>
+#include <QPushButton>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     setWindowTitle("分布式存储可视化系统");
     setMinimumSize(1000, 600);
+
+    m_minNodeCount = 5;
+    m_maxNodeCount = 15;
 
     // 创建中心部件和布局
     QWidget *centralWidget = new QWidget(this);
@@ -135,6 +141,12 @@ void MainWindow::createMenus()
 
     QAction *faultHandleAction = new QAction("故障处理", this);
     simulationMenu->addAction(faultHandleAction);
+
+    simulationMenu->addSeparator();
+
+    QAction *settingsAction = new QAction("仿真设置", this);
+    connect(settingsAction, &QAction::triggered, this, &MainWindow::onSimulationSettings);
+    simulationMenu->addAction(settingsAction);
 
     // 添加帮助菜单
     QMenu *helpMenu = menuBar()->addMenu("帮助");
@@ -432,7 +444,15 @@ void MainWindow::onSaveFile()
 // 另存为
 void MainWindow::onSaveAsFile()
 {
-    QString fileName = QFileDialog::getSaveFileName(this, "保存文件", "",
+    if (m_canvas->getNodes().isEmpty())
+    {
+        QMessageBox::warning(this, "保存失败", "当前没有节点，无法保存文件！");
+        return;
+    }
+
+    QString defaultDir = defaultSaveDirectory();
+
+    QString fileName = QFileDialog::getSaveFileName(this, "保存文件", defaultDir,
                                                     "网络拓扑文件 (*.net);;所有文件 (*)");
 
     if (!fileName.isEmpty())
@@ -446,7 +466,9 @@ void MainWindow::onOpenFile()
 {
     if (maybeSave())
     {
-        QString fileName = QFileDialog::getOpenFileName(this, "打开文件", "",
+        QString defaultDir = defaultSaveDirectory();
+
+        QString fileName = QFileDialog::getOpenFileName(this, "打开文件", defaultDir,
                                                         "网络拓扑文件 (*.net);;所有文件 (*)");
 
         if (!fileName.isEmpty())
@@ -459,6 +481,12 @@ void MainWindow::onOpenFile()
 // 实际保存逻辑
 bool MainWindow::saveFile(const QString &fileName)
 {
+    if (m_canvas->getNodes().isEmpty())
+    {
+        QMessageBox::warning(this, "保存失败", "当前没有节点，无法保存文件！");
+        return false;
+    }
+
     QFile file(fileName);
     if (!file.open(QIODevice::WriteOnly))
     {
@@ -635,9 +663,9 @@ void MainWindow::onRefreshGraph()
     // 仅在勾选状态下刷新
     if (dataTransAction->isChecked())
     {
-        m_canvas->generateRandomConnectedGraph(); // 重新生成连通图
-        m_statusLabel->setText("按下F5刷新");     // 状态栏提示
-        m_isModified = true;                      // 标记为已修改
+        m_canvas->generateRandomConnectedGraph(m_minNodeCount, m_maxNodeCount); // 重新生成连通图
+        m_statusLabel->setText("按下F5刷新"); // 状态栏提示
+        m_isModified = true;                  // 标记为已修改
     }
 }
 
@@ -657,7 +685,7 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
         // 仅在勾选状态下执行刷新
         if (dataTransAction->isChecked())
         {
-            m_canvas->generateRandomConnectedGraph();
+            m_canvas->generateRandomConnectedGraph(m_minNodeCount, m_maxNodeCount);
             m_statusLabel->setText("已刷新数据传输连通图");
             m_isModified = true;
         }
@@ -684,7 +712,11 @@ void MainWindow::onExportTrainingData()
         return;
     }
 
-    QString fileName = QFileDialog::getSaveFileName(this, "导出训练数据", "",
+    QString defaultDir = defaultTrainDataDirectory();
+    QString timeStamp = QDateTime::currentDateTime().toString("yyyyMMddhhmmss");
+    QString defaultFileName = defaultDir + "/train_data_" + timeStamp + ".json";
+
+    QString fileName = QFileDialog::getSaveFileName(this, "导出训练数据", defaultFileName,
                                                     "JSON文件 (*.json);;所有文件 (*)");
     if (fileName.isEmpty())
         return;
@@ -793,8 +825,6 @@ bool MainWindow::exportDataToJson(const QString &fileName)
     out << QJsonDocument(rlData).toJson(QJsonDocument::Indented);
     file.close();
 
-    QMessageBox::information(this, "导出成功", "RL数据已导出至：" + fileName);
-
     return true;
 }
 
@@ -876,4 +906,114 @@ void MainWindow::onFindOptimalPath()
                              QString("找到最佳路径:\n%1\n节点数量: %2")
                                  .arg(pathInfo)
                                  .arg(bestPath.size()));
+}
+
+void MainWindow::onSimulationSettings()
+{
+    int canvasWidth = m_canvas->width();
+    int canvasHeight = m_canvas->height();
+    int gridSize = m_canvas->gridSize();
+
+    if (gridSize <= 0)
+    {
+        QMessageBox::warning(this, "参数错误", "网格大小设置无效，请先设置合理的网格大小");
+        return;
+    }
+
+    int horizontalPoints = (canvasWidth / gridSize) + 1;
+    int verticalPoints = (canvasHeight / gridSize) + 1;
+    int maxNodeCount = horizontalPoints * verticalPoints;
+    // 创建设置对话框
+    QDialog dialog(this);
+    dialog.setWindowTitle("仿真设置");
+    dialog.setFixedSize(300, 150);
+
+    // 创建布局
+    QVBoxLayout *mainLayout = new QVBoxLayout(&dialog);
+
+    // 最小节点数量设置
+    QHBoxLayout *minLayout = new QHBoxLayout();
+    QLabel *minLabel = new QLabel("最小节点数量:");
+    QSpinBox *minSpin = new QSpinBox();
+    minSpin->setRange(5, maxNodeCount);
+    minSpin->setValue(m_minNodeCount);
+    minLayout->addWidget(minLabel);
+    minLayout->addWidget(minSpin);
+
+    // 最大节点数量设置
+    QHBoxLayout *maxLayout = new QHBoxLayout();
+    QLabel *maxLabel = new QLabel("最大节点数量:");
+    QSpinBox *maxSpin = new QSpinBox();
+    maxSpin->setRange(5, maxNodeCount);
+    maxSpin->setValue(m_maxNodeCount);
+    maxLayout->addWidget(maxLabel);
+    maxLayout->addWidget(maxSpin);
+
+    // 确保最大节点数不小于最小节点数
+    connect(minSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [maxSpin](int minVal)
+            {
+        if (maxSpin->value() < minVal) {
+            maxSpin->setValue(minVal);
+        } });
+
+    // 添加按钮
+    QHBoxLayout *btnLayout = new QHBoxLayout();
+    QPushButton *okBtn = new QPushButton("确定");
+    QPushButton *cancelBtn = new QPushButton("取消");
+    btnLayout->addWidget(okBtn);
+    btnLayout->addWidget(cancelBtn);
+
+    connect(okBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
+    connect(cancelBtn, &QPushButton::clicked, &dialog, &QDialog::reject);
+
+    // 添加到主布局
+    mainLayout->addLayout(minLayout);
+    mainLayout->addLayout(maxLayout);
+    mainLayout->addLayout(btnLayout);
+
+    // 显示对话框并处理结果
+    if (dialog.exec() == QDialog::Accepted)
+    {
+        m_minNodeCount = minSpin->value();
+        m_maxNodeCount = maxSpin->value();
+
+        // 在状态栏显示设置结果
+        m_statusLabel->setText(QString("仿真设置已更新 - 节点数量范围: %1-%2")
+                                   .arg(m_minNodeCount)
+                                   .arg(m_maxNodeCount));
+    }
+}
+
+QString MainWindow::defaultSaveDirectory() const
+{
+    // 获取可执行文件所在目录
+    QString appDir = QCoreApplication::applicationDirPath();
+    // 构建net文件夹路径
+    QString netDir = appDir + "/net";
+
+    // 确保net文件夹存在，不存在则创建
+    QDir dir;
+    if (!dir.exists(netDir))
+    {
+        dir.mkpath(netDir); // 递归创建目录（支持多级目录）
+    }
+
+    return netDir;
+}
+
+QString MainWindow::defaultTrainDataDirectory() const
+{
+    // 获取可执行文件所在目录
+    QString appDir = QCoreApplication::applicationDirPath();
+    // 构建train_data文件夹路径
+    QString trainDir = appDir + "/train_data";
+
+    // 确保train_data文件夹存在，不存在则创建
+    QDir dir;
+    if (!dir.exists(trainDir))
+    {
+        dir.mkpath(trainDir); // 递归创建目录
+    }
+
+    return trainDir;
 }

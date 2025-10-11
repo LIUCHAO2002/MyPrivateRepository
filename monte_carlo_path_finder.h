@@ -8,6 +8,7 @@
 #include "client_node.h"
 #include "link.h"
 #include "network_canvas.h"
+#include "path_search_algorithm.h"
 
 // 路径评估结果结构体（用于存储路径的各项指标）
 struct PathEvaluation

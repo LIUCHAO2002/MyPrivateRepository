@@ -6,7 +6,44 @@
 #include <QInputDialog>
 #include <QRandomGenerator>
 #include <cmath>
+#include <qmath.h>
 #include <qDebug>
+
+namespace
+{
+    static constexpr double kIntersectAngle = 25.0; // 相交判断角度阈值
+
+    static bool nearlyParallel(const QPointF &r, const QPointF &s, double maxDegrees = kIntersectAngle)
+    {
+        const double dot = r.x() * s.x() + r.y() * s.y();
+        const double lenR = std::hypot(r.x(), r.y());
+        const double lenS = std::hypot(s.x(), s.y());
+        if (qFuzzyIsNull(lenR) || qFuzzyIsNull(lenS))
+            return true;
+        double cosTheta = dot / (lenR * lenS);
+        cosTheta = qBound(-1.0, cosTheta, 1.0);
+        const double deg = qAcos(cosTheta) * 180.0 / M_PI;
+        return deg < maxDegrees;
+    }
+
+    static bool segmentsIntersect(const QPointF &p1, const QPointF &p2,
+                                  const QPointF &q1, const QPointF &q2)
+    {
+        const auto cross = [](const QPointF &a, const QPointF &b)
+        {
+            return a.x() * b.y() - a.y() * b.x();
+        };
+        const QPointF r = p2 - p1;
+        const QPointF s = q2 - q1;
+        const QPointF qp = q1 - p1;
+        const double rxs = cross(r, s);
+        if (qFuzzyIsNull(rxs) || nearlyParallel(r, s, kIntersectAngle))
+            return false;
+        const double t = cross(qp, s) / rxs;
+        const double u = cross(qp, r) / rxs;
+        return t > 0.0 && t < 1.0 && u > 0.0 && u < 1.0;
+    }
+} // namespace
 
 NetworkCanvas::NetworkCanvas(QWidget *parent)
     : QWidget(parent), m_gridSize(50), // 默认网格大小50像素
@@ -259,6 +296,7 @@ void NetworkCanvas::contextMenuEvent(QContextMenuEvent *event)
     // 检查是否右键点击了节点
     QPoint gridPos = snapToGrid(event->pos()) / m_gridSize;
     ClientNode *clickedNode = findNodeAt(event->pos());
+    Link *clickedLink = findLinkAt(event->pos());
 
     if (clickedNode)
     {
@@ -293,6 +331,25 @@ void NetworkCanvas::contextMenuEvent(QContextMenuEvent *event)
             // 重置选中状态
             if (m_selectedNode == clickedNode) {
                 m_selectedNode = nullptr;
+                emit nothingSelected();
+            }
+            
+            update(); });
+    }
+    else if (clickedLink)
+    {
+        menu.removeAction(addNodeAction);
+
+        QAction *deleteLinkAction = menu.addAction("删除链路");
+        connect(deleteLinkAction, &QAction::triggered, this, [this, clickedLink]()
+                {
+            // 从链路列表中移除并删除
+            m_links.removeOne(clickedLink);
+            delete clickedLink;
+            
+            // 重置选中状态
+            if (m_selectedLink == clickedLink) {
+                m_selectedLink = nullptr;
                 emit nothingSelected();
             }
             
@@ -377,12 +434,15 @@ double NetworkCanvas::distance(const QPoint &p1, const QPoint &p2) const
 }
 
 // 生成随机连通图（5-15个节点，基础树+随机额外链路）
-void NetworkCanvas::generateRandomConnectedGraph()
+void NetworkCanvas::generateRandomConnectedGraph(int minNodes, int maxNodes)
 {
     clearAll(); // 先清空现有内容
 
+    int actualMin = qMax(2, minNodes);
+    int actualMax = qMax(actualMin, maxNodes);
+
     // 随机生成5-15个节点
-    int nodeCount = QRandomGenerator::global()->bounded(5, 15);
+    int nodeCount = QRandomGenerator::global()->bounded(actualMin, actualMax + 1);
     auto nodes = generateRandomNodes(nodeCount);
     m_nodes = nodes;
 
@@ -448,60 +508,79 @@ QVector<ClientNode *> NetworkCanvas::generateRandomNodes(int count)
 // 生成最小生成树（Prim算法简化版）
 void NetworkCanvas::generateSpanningTree(QVector<ClientNode *> &nodes)
 {
-    if (nodes.size() < 2)
+    int n = nodes.size();
+    if (n < 2)
         return;
 
-    QVector<bool> inTree(nodes.size(), false);
-    inTree[0] = true; // 从第一个节点开始
+    QVector<bool> inTree(n, false);
+    QVector<double> minDist(n, std::numeric_limits<double>::max());
+    QVector<int> parent(n, -1);
 
-    // 逐步将所有节点加入树
-    for (int i = 1; i < nodes.size(); ++i)
+    minDist[0] = 0.0;
+
+    for (int i = 0; i < n; ++i)
     {
-        // 随机选择一个已在树中的节点和一个未在树中的节点连接
-        int fromIdx, toIdx;
-        do
+        int u = -1;
+        for (int j = 0; j < n; ++j)
         {
-            fromIdx = QRandomGenerator::global()->bounded(nodes.size());
-            toIdx = QRandomGenerator::global()->bounded(nodes.size());
-        } while (inTree[fromIdx] == inTree[toIdx]); // 确保一个在树内一个在树外
+            if (!inTree[j] && (u == -1 || minDist[j] < minDist[u]))
+                u = j;
+        }
 
-        // 保证from在树内，to在树外
-        if (!inTree[fromIdx])
-            std::swap(fromIdx, toIdx);
+        inTree[u] = true;
 
-        // 创建链路
-        Link *link = new Link(nodes[fromIdx], nodes[toIdx]);
-        // 随机设置链路属性
-        link->setBandwidth(500 + QRandomGenerator::global()->bounded(1500)); // 500-2000Mbps
-        link->setCongestion(QRandomGenerator::global()->bounded(0.5));       // 0-50%拥塞
-        m_links.append(link);
+        if (parent[u] != -1)
+        {
+            Link *link = new Link(nodes[parent[u]], nodes[u]);
+            link->setBandwidth(500 + QRandomGenerator::global()->bounded(1500));
+            link->setCongestion(QRandomGenerator::global()->bounded(0.5));
+            m_links.append(link);
+        }
 
-        inTree[toIdx] = true; // 将新节点加入树
+        for (int v = 0; v < n; ++v)
+        {
+            if (!inTree[v])
+            {
+                double dist = distance(nodes[u]->position(), nodes[v]->position());
+                if (dist < minDist[v])
+                {
+                    minDist[v] = dist;
+                    parent[v] = u;
+                }
+            }
+        }
     }
 }
 
 // 随机添加额外链路（不重复）
 void NetworkCanvas::addRandomExtraLinks(QVector<ClientNode *> &nodes, int extraCount)
 {
-    if (nodes.size() < 2 || extraCount <= 0)
+    const int n = nodes.size();
+    if (n < 2 || extraCount <= 0)
         return;
 
-    for (int i = 0; i < extraCount; ++i)
-    {
-        // 随机选择两个不同节点
-        int idx1, idx2;
-        do
-        {
-            idx1 = QRandomGenerator::global()->bounded(nodes.size());
-            idx2 = QRandomGenerator::global()->bounded(nodes.size());
-        } while (idx1 == idx2);
+    int added = 0;
+    int attempts = 0;
+    const int maxAttempts = extraCount * 20; // 防死循环
 
-        // 检查链路是否已存在
+    while (added < extraCount && attempts < maxAttempts)
+    {
+        attempts++;
+
+        int i = QRandomGenerator::global()->bounded(n);
+        int j = QRandomGenerator::global()->bounded(n);
+        if (i == j)
+            continue;
+
+        ClientNode *n1 = nodes[i];
+        ClientNode *n2 = nodes[j];
+
+        // 是否已存在
         bool exists = false;
-        foreach (auto link, m_links)
+        for (const Link *lnk : m_links)
         {
-            if ((link->node1() == nodes[idx1] && link->node2() == nodes[idx2]) ||
-                (link->node1() == nodes[idx2] && link->node2() == nodes[idx1]))
+            if ((lnk->node1() == n1 && lnk->node2() == n2) ||
+                (lnk->node1() == n2 && lnk->node2() == n1))
             {
                 exists = true;
                 break;
@@ -510,10 +589,48 @@ void NetworkCanvas::addRandomExtraLinks(QVector<ClientNode *> &nodes, int extraC
         if (exists)
             continue;
 
-        // 创建新链路
-        Link *link = new Link(nodes[idx1], nodes[idx2]);
-        link->setBandwidth(500 + QRandomGenerator::global()->bounded(1500));
-        link->setCongestion(QRandomGenerator::global()->bounded(0.8)); // 0-80%拥塞
-        m_links.append(link);
+        // 是否与已有边相交
+        QPointF p1 = n1->position();
+        QPointF p2 = n2->position();
+        bool intersects = false;
+        for (const Link *lnk : m_links)
+        {
+            QPointF q1 = lnk->node1()->position();
+            QPointF q2 = lnk->node2()->position();
+            if (segmentsIntersect(p1, p2, q1, q2))
+            {
+                intersects = true;
+                break;
+            }
+        }
+        if (intersects)
+            continue;
+
+        double minAngle = 25.0; // 阈值可调
+        auto tooSharp = [&](ClientNode *n, const QPointF &newP)
+        {
+            for (const Link *lnk : m_links)
+            {
+                if (lnk->node1() != n && lnk->node2() != n)
+                    continue;
+                QPointF oldP = (lnk->node1() == n) ? lnk->node2()->position()
+                                                   : lnk->node1()->position();
+                QPointF r = oldP - n->position();
+                QPointF s = newP - n->position();
+                if (nearlyParallel(r, s, minAngle))
+                    return true; // 夹角太小
+            }
+            return false;
+        };
+
+        if (tooSharp(n1, p2) || tooSharp(n2, p1))
+            continue;
+
+        // 可以添加
+        Link *lnk = new Link(n1, n2);
+        lnk->setBandwidth(500 + QRandomGenerator::global()->bounded(1500));
+        lnk->setCongestion(QRandomGenerator::global()->bounded(0.8));
+        m_links.append(lnk);
+        added++;
     }
 }

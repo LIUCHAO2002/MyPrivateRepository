@@ -34,6 +34,7 @@ private slots:
     void onRefreshGraph();
     void onExportTrainingData();
     void onFindOptimalPath();
+    void onSimulationSettings();
 
 private:
     void createMenus();
@@ -45,6 +46,8 @@ private:
     bool maybeSave();                       // 退出前检查是否需要保存
     bool exportDataToJson(const QString &fileName);
     bool isGraphConnected();
+    QString defaultSaveDirectory() const;
+    QString defaultTrainDataDirectory() const;
 
     NetworkCanvas *m_canvas;
     QTreeWidget *m_propertyView;
@@ -53,6 +56,9 @@ private:
     bool m_isModified;         // 文件是否被修改
 
     QLabel* m_statusLabel;
+
+    int m_minNodeCount;
+    int m_maxNodeCount;
 };
 
 #endif // MAIN_WINDOW_H

@@ -29,7 +29,7 @@ public:
     void addNodeFromFile(ClientNode* node) { m_nodes.append(node); }
     void addLink(Link* link) { m_links.append(link); }
 
-    void generateRandomConnectedGraph();
+    void generateRandomConnectedGraph(int minNodes, int maxNodes);
     
     // 清空所有数据
     void clearAll() {
