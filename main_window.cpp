@@ -1,6 +1,6 @@
 #include "main_window.h"
 #include "monte_carlo_path_finder.h"
-#include "bidirectional_astar_path_finder.h"
+// #include "steiner_path_finder.h"
 #include <QMenuBar>
 #include <QMenu>
 #include <QInputDialog>

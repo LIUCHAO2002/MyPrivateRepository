@@ -1,4 +1,4 @@
-#include "SteinerPathFinder.h"
+#include "steiner_path_finder.h"
 #include <queue>
 #include <unordered_map>
 #include <algorithm>
