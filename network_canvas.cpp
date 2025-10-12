@@ -153,8 +153,8 @@ void NetworkCanvas::paintEvent(QPaintEvent *event)
         else
         {
             // 根据数据比例调整颜色
-            double dataRatio = node->dataRatio();
-            if (dataRatio <= 0)
+            // double dataRatio = node->dataRatio();
+            if (!node->hasDataBlocks())
             {
                 // 数据比例为0时使用默认绿色
                 painter.setBrush(QColor(150, 150, 150));
@@ -167,7 +167,7 @@ void NetworkCanvas::paintEvent(QPaintEvent *event)
                 int saturation = 200;
                 // 亮度随比例变化：比例越大，亮度越低（颜色越深）
                 // 亮度范围：0.0→220（最浅蓝），1.0→120（最深蓝），线性过渡
-                int lightness = 220 - static_cast<int>(std::min(std::round(dataRatio * 10), 10.0)) * 10;
+                int lightness = qBound(100, (220 - (node->storedBlocks().size() * 20)), 220);
 
                 QColor color;
                 color.setHsl(hue, saturation, lightness);
@@ -434,7 +434,9 @@ double NetworkCanvas::distance(const QPoint &p1, const QPoint &p2) const
 }
 
 // 生成随机连通图（5-15个节点，基础树+随机额外链路）
-void NetworkCanvas::generateRandomConnectedGraph(int minNodes, int maxNodes)
+void NetworkCanvas::generateRandomConnectedGraph(int minNodes, int maxNodes,
+                                                 int fileCount, int blocksPerFile,
+                                                 int minReplica, int maxReplica)
 {
     clearAll(); // 先清空现有内容
 
@@ -452,6 +454,11 @@ void NetworkCanvas::generateRandomConnectedGraph(int minNodes, int maxNodes)
     // 随机添加额外链路（0到节点数-1条）
     int extraLinks = QRandomGenerator::global()->bounded(nodeCount);
     addRandomExtraLinks(nodes, extraLinks);
+
+    if (m_dataTransferEnabled)
+    {
+        allocateRandomDataBlocks(nodes, fileCount, blocksPerFile, minReplica, maxReplica);
+    }
 
     update(); // 重绘
     emit contentModified();
@@ -632,5 +639,80 @@ void NetworkCanvas::addRandomExtraLinks(QVector<ClientNode *> &nodes, int extraC
         lnk->setCongestion(QRandomGenerator::global()->bounded(0.8));
         m_links.append(lnk);
         added++;
+    }
+}
+
+void NetworkCanvas::allocateRandomDataBlocks(
+    const QVector<ClientNode *> &nodes,
+    int fileCount,
+    int blocksPerFile,
+    int minReplica,
+    int maxReplica)
+{
+    if (m_nodes.isEmpty() || fileCount <= 0 || blocksPerFile <= 0)
+        return;
+
+    // 1. 随机选择部分节点作为"存储节点"（例如总节点的60%）
+    int storageNodeCount = qMax(1, (int)(m_nodes.size() * 0.6)); // 至少1个存储节点
+    QVector<ClientNode *> storageNodes = m_nodes;
+    std::shuffle(storageNodes.begin(), storageNodes.end(), std::default_random_engine(QRandomGenerator::global()->generate()));
+    storageNodes.resize(storageNodeCount);
+
+    // 2. 生成文件及数据块
+    for (int fileIdx = 0; fileIdx < fileCount; ++fileIdx)
+    {
+        QString fileId = QString(QChar('A' + fileIdx)); // 文件标识：F1, F2...
+        double totalFileSize = 0.0;
+
+        // 2.1 计算每个数据块大小（10-100MB）
+        QVector<double> blockSizes;
+        for (int i = 0; i < blocksPerFile; ++i)
+        {
+            double size = 10.0 + QRandomGenerator::global()->generateDouble() * 90.0;
+            blockSizes.append(size);
+            totalFileSize += size;
+        }
+
+        // 2.2 为每个数据块分配主块和备份
+        for (int blockIdx = 0; blockIdx < blocksPerFile; ++blockIdx)
+        {
+            double blockSize = blockSizes[blockIdx];
+            double ratio = totalFileSize > 0 ? blockSize / totalFileSize : 0.0;
+
+            // 随机生成副本数（在配置范围内）
+            int replicaCount = minReplica + QRandomGenerator::global()->bounded(maxReplica - minReplica + 1);
+            int totalCopies = 1 + replicaCount; // 1个主块 + N个备份
+
+            // 从存储节点中选择不重复的节点存储主块和备份
+            if (storageNodes.size() < totalCopies)
+            {
+                continue; // 存储节点不足时跳过（实际应增加判断）
+            }
+
+            QVector<ClientNode *> selectedNodes;
+            QSet<int> usedIndices;
+            for (int i = 0; i < totalCopies; ++i)
+            {
+                // 随机选择未使用的存储节点
+                int idx;
+                do
+                {
+                    idx = QRandomGenerator::global()->bounded(storageNodes.size());
+                } while (usedIndices.contains(idx));
+                usedIndices.insert(idx);
+                selectedNodes.append(storageNodes[idx]);
+            }
+
+            // 分配主块（第0个为为）
+            selectedNodes[0]->addDataBlock(DataBlockInfo(
+                fileId, blockIdx + 1, blockSize, ratio, false));
+
+            // 分配备份块（剩余为备份）
+            for (int i = 1; i < totalCopies; ++i)
+            {
+                selectedNodes[i]->addDataBlock(DataBlockInfo(
+                    fileId, blockIdx + 1, blockSize, ratio, true));
+            }
+        }
     }
 }

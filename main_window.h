@@ -48,6 +48,8 @@ private:
     bool isGraphConnected();
     QString defaultSaveDirectory() const;
     QString defaultTrainDataDirectory() const;
+    int fileCount() const { return m_fileCount; }
+    int blockPerFile() const { return m_blockPerFile; }
 
     NetworkCanvas *m_canvas;
     QTreeWidget *m_propertyView;
@@ -59,6 +61,12 @@ private:
 
     int m_minNodeCount;
     int m_maxNodeCount;
+
+    int m_fileCount = 10;
+    int m_blockPerFile = 8;
+    bool m_randomBlockDistribution = false;
+    int m_minReplicaCount = 1;
+    int m_maxReplicaCount = 2;
 };
 
 #endif // MAIN_WINDOW_H

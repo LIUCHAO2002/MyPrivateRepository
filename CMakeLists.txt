@@ -31,7 +31,7 @@ set(SOURCES
     client_node.cpp
     link.cpp
     monte_carlo_path_finder.cpp
-    # steiner_path_finder.cpp
+    steiner_path_finder.cpp
 )
 
 # 头文件列表
@@ -41,7 +41,7 @@ set(HEADERS
     client_node.h
     link.h
     monte_carlo_path_finder.h
-    # steiner_path_finder.h
+    steiner_path_finder.h
     path_search_algorithm.h
 )
 

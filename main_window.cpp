@@ -1,6 +1,6 @@
 #include "main_window.h"
 #include "monte_carlo_path_finder.h"
-// #include "steiner_path_finder.h"
+#include "steiner_path_finder.h"
 #include <QMenuBar>
 #include <QMenu>
 #include <QInputDialog>
@@ -21,6 +21,8 @@
 #include <QQueue>
 #include <QSpinBox>
 #include <QPushButton>
+#include <QGroupBox>
+#include <QCheckBox>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -319,6 +321,43 @@ void MainWindow::updatePropertyView(ClientNode *node)
     dataRatioItem->setText(1, QString::number(node->dataRatio()));
     dataRatioItem->setFlags(dataRatioItem->flags() | Qt::ItemIsEditable);
     m_propertyView->addTopLevelItem(dataRatioItem);
+
+    QTreeWidgetItem *blockTitleItem = new QTreeWidgetItem();
+    blockTitleItem->setText(0, "存储数据块");
+    blockTitleItem->setText(1, "（文件标识 数据块编号）");
+    blockTitleItem->setFlags(blockTitleItem->flags() & ~Qt::ItemIsEditable);
+    m_propertyView->addTopLevelItem(blockTitleItem);
+
+    // 遍历节点中的数据块并显示
+    const auto &blocks = node->storedBlocks();
+    if (blocks.isEmpty())
+    {
+        QTreeWidgetItem *emptyItem = new QTreeWidgetItem();
+        emptyItem->setText(0, "无数据块");
+        emptyItem->setText(1, "");
+        emptyItem->setFlags(emptyItem->flags() & ~Qt::ItemIsEditable);
+        m_propertyView->addTopLevelItem(emptyItem);
+    }
+    else
+    {
+        for (const auto &block : blocks)
+        {
+            QTreeWidgetItem *blockItem = new QTreeWidgetItem();
+            // 属性列：文件标识+数据块编号（如"A1"）
+            QString blockId = QString("%1%2").arg(block.fileId).arg(block.blockIndex);
+            blockItem->setText(0, blockId + "数据块");
+
+            // 值列：大小和占比（如"大小: 50MB, 占比: 25%"）
+            QString blockInfo = QString("大小: %.1fMB, 占比: %.0f%%")
+                                    .arg(block.size)
+                                    .arg(block.ratioInFile * 100);
+            blockItem->setText(1, blockInfo);
+
+            // 禁止编辑（如需编辑可扩展为双击弹窗）
+            blockItem->setFlags(blockItem->flags() & ~Qt::ItemIsEditable);
+            m_propertyView->addTopLevelItem(blockItem);
+        }
+    }
 
     m_propertyView->resizeColumnToContents(0);
 }
@@ -663,7 +702,11 @@ void MainWindow::onRefreshGraph()
     // 仅在勾选状态下刷新
     if (dataTransAction->isChecked())
     {
-        m_canvas->generateRandomConnectedGraph(m_minNodeCount, m_maxNodeCount); // 重新生成连通图
+        m_canvas->generateRandomConnectedGraph(m_minNodeCount, m_maxNodeCount,
+                                               m_fileCount,
+                                               m_blockPerFile,
+                                               m_minReplicaCount,
+                                               m_maxReplicaCount); // 重新生成连通图
         m_statusLabel->setText("按下F5刷新"); // 状态栏提示
         m_isModified = true;                  // 标记为已修改
     }
@@ -685,7 +728,11 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
         // 仅在勾选状态下执行刷新
         if (dataTransAction->isChecked())
         {
-            m_canvas->generateRandomConnectedGraph(m_minNodeCount, m_maxNodeCount);
+            m_canvas->generateRandomConnectedGraph(m_minNodeCount, m_maxNodeCount,
+                                                   m_fileCount,
+                                                   m_blockPerFile,
+                                                   m_minReplicaCount,
+                                                   m_maxReplicaCount);
             m_statusLabel->setText("已刷新数据传输连通图");
             m_isModified = true;
         }
@@ -885,7 +932,7 @@ bool MainWindow::isGraphConnected()
 
 void MainWindow::onFindOptimalPath()
 {
-    MonteCarloPathFinder finder(m_canvas);
+    PathCoverSolver finder(m_canvas);
     QVector<ClientNode *> bestPath = finder.findBestPath();
 
     if (bestPath.isEmpty())
@@ -926,10 +973,13 @@ void MainWindow::onSimulationSettings()
     // 创建设置对话框
     QDialog dialog(this);
     dialog.setWindowTitle("仿真设置");
-    dialog.setFixedSize(300, 150);
+    dialog.setMinimumWidth(400);
 
     // 创建布局
     QVBoxLayout *mainLayout = new QVBoxLayout(&dialog);
+
+    QGroupBox *nodeCountGroup = new QGroupBox("节点数量配置");
+    QVBoxLayout *nodeLayout = new QVBoxLayout(nodeCountGroup);
 
     // 最小节点数量设置
     QHBoxLayout *minLayout = new QHBoxLayout();
@@ -939,6 +989,7 @@ void MainWindow::onSimulationSettings()
     minSpin->setValue(m_minNodeCount);
     minLayout->addWidget(minLabel);
     minLayout->addWidget(minSpin);
+    nodeLayout->addLayout(minLayout);
 
     // 最大节点数量设置
     QHBoxLayout *maxLayout = new QHBoxLayout();
@@ -948,6 +999,7 @@ void MainWindow::onSimulationSettings()
     maxSpin->setValue(m_maxNodeCount);
     maxLayout->addWidget(maxLabel);
     maxLayout->addWidget(maxSpin);
+    nodeLayout->addLayout(maxLayout);
 
     // 确保最大节点数不小于最小节点数
     connect(minSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [maxSpin](int minVal)
@@ -955,6 +1007,51 @@ void MainWindow::onSimulationSettings()
         if (maxSpin->value() < minVal) {
             maxSpin->setValue(minVal);
         } });
+
+    QGroupBox *fileGroup = new QGroupBox("文件与数据块配置");
+    QVBoxLayout *fileLayout = new QVBoxLayout(fileGroup);
+
+    // 文件数量设置
+    QHBoxLayout *fileCountLayout = new QHBoxLayout();
+    QLabel *fileCountLabel = new QLabel("文件总数:");
+    QSpinBox *fileCountSpin = new QSpinBox();
+    fileCountSpin->setRange(1, 100);      // 合理范围：1-1000个文件
+    fileCountSpin->setValue(m_fileCount); // 使用成员变量存储
+    fileCountLayout->addWidget(fileCountLabel);
+    fileCountLayout->addWidget(fileCountSpin);
+    fileLayout->addLayout(fileCountLayout);
+
+    QHBoxLayout *randomBlockLayout = new QHBoxLayout();
+    QCheckBox *randomBlockCheck = new QCheckBox("随机划分文件数据块");
+    randomBlockCheck->setChecked(m_randomBlockDistribution);
+    randomBlockLayout->addWidget(randomBlockCheck);
+    fileLayout->addLayout(randomBlockLayout);
+
+    // 每个文件数据块数量设置
+    QHBoxLayout *blockCountLayout = new QHBoxLayout();
+    QLabel *blockCountLabel = new QLabel("每个文件数据块数:");
+    QSpinBox *blockCountSpin = new QSpinBox();
+    blockCountSpin->setEnabled(!m_randomBlockDistribution);
+    blockCountSpin->setRange(1, 32);          // 合理范围：1-32个数据块
+    blockCountSpin->setValue(m_blockPerFile); // 使用成员变量存储
+    blockCountLayout->addWidget(blockCountLabel);
+    blockCountLayout->addWidget(blockCountSpin);
+    fileLayout->addLayout(blockCountLayout);
+
+    QHBoxLayout *replicaLayout = new QHBoxLayout();
+    replicaLayout->addWidget(new QLabel("副本数范围:"));
+    QSpinBox *minReplicaSpin = new QSpinBox();
+    minReplicaSpin->setRange(1, 3);
+    minReplicaSpin->setValue(m_minReplicaCount);
+    replicaLayout->addWidget(minReplicaSpin);
+    replicaLayout->addWidget(new QLabel("~"));
+    QSpinBox *maxReplicaSpin = new QSpinBox();
+    maxReplicaSpin->setRange(1, 3);
+    maxReplicaSpin->setValue(m_maxReplicaCount);
+    replicaLayout->addWidget(maxReplicaSpin);
+    fileLayout->addLayout(replicaLayout);
+
+    mainLayout->addWidget(fileGroup);
 
     // 添加按钮
     QHBoxLayout *btnLayout = new QHBoxLayout();
@@ -965,10 +1062,12 @@ void MainWindow::onSimulationSettings()
 
     connect(okBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
     connect(cancelBtn, &QPushButton::clicked, &dialog, &QDialog::reject);
+    connect(randomBlockCheck, &QCheckBox::stateChanged,
+            blockCountSpin, [blockCountSpin](int state)
+            { blockCountSpin->setEnabled(state == Qt::Unchecked); });
 
     // 添加到主布局
-    mainLayout->addLayout(minLayout);
-    mainLayout->addLayout(maxLayout);
+    mainLayout->addWidget(nodeCountGroup);
     mainLayout->addLayout(btnLayout);
 
     // 显示对话框并处理结果
@@ -976,11 +1075,19 @@ void MainWindow::onSimulationSettings()
     {
         m_minNodeCount = minSpin->value();
         m_maxNodeCount = maxSpin->value();
+        m_fileCount = fileCountSpin->value();
+        m_randomBlockDistribution = randomBlockCheck->isChecked();
+        if (!m_randomBlockDistribution)
+        {
+            m_blockPerFile = blockCountSpin->value();
+        }
+        m_minReplicaCount = minReplicaSpin->value();
+        m_maxReplicaCount = qMax(m_minReplicaCount, maxReplicaSpin->value());
 
         // 在状态栏显示设置结果
-        m_statusLabel->setText(QString("仿真设置已更新 - 节点数量范围: %1-%2")
-                                   .arg(m_minNodeCount)
-                                   .arg(m_maxNodeCount));
+        // m_statusLabel->setText(QString("仿真设置已更新 - 节点数量范围: %1-%2")
+        //                            .arg(m_minNodeCount)
+        //                            .arg(m_maxNodeCount));
     }
 }
 

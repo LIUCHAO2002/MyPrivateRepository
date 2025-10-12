@@ -3,6 +3,20 @@
 
 #include <QPoint>
 #include <QUuid>
+#include <QVector>
+
+struct DataBlockInfo
+{
+    QString fileId;     // 文件标识（如"A"、"B"）
+    int blockIndex;     // 数据块编号（如1、2）
+    double size;        // 数据块大小（MB）
+    double ratioInFile; // 在所属文件中的占比（0-1）
+    bool isReplica;
+
+    // 构造函数
+    DataBlockInfo(QString fid, int idx, double sz, double ratio, bool replica = false)
+        : fileId(fid), blockIndex(idx), size(sz), ratioInFile(ratio), isReplica(replica) {}
+};
 
 class ClientNode
 {
@@ -50,6 +64,11 @@ public:
 
     static void resetNextId() { m_nextId = 0; }
 
+    void addDataBlock(const DataBlockInfo &block) { m_storedBlocks.append(block); }
+    void removeAllDataBlocks() { m_storedBlocks.clear(); }
+    const QVector<DataBlockInfo> &storedBlocks() const { return m_storedBlocks; }
+    bool hasDataBlocks() const { return !m_storedBlocks.isEmpty(); }
+
 private:
     QPoint m_position;
     QString m_id;
@@ -62,6 +81,7 @@ private:
     double m_loadStatus;            // 负载状态
     double m_stability;             // 稳定性
     double m_dataRatio;
+    QVector<DataBlockInfo> m_storedBlocks;
 };
 
 #endif // CLIENT_NODE_H

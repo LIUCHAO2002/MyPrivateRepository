@@ -22,17 +22,20 @@ public:
     Link *selectedLink() const { return m_selectedLink; }
 
     // 获取节点和链路列表
-    const QVector<ClientNode*>& getNodes() const { return m_nodes; }
-    const QVector<Link*>& getLinks() const { return m_links; }
-    
-    // 添加节点和链路（用于加载文件）
-    void addNodeFromFile(ClientNode* node) { m_nodes.append(node); }
-    void addLink(Link* link) { m_links.append(link); }
+    const QVector<ClientNode *> &getNodes() const { return m_nodes; }
+    const QVector<Link *> &getLinks() const { return m_links; }
 
-    void generateRandomConnectedGraph(int minNodes, int maxNodes);
-    
+    // 添加节点和链路（用于加载文件）
+    void addNodeFromFile(ClientNode *node) { m_nodes.append(node); }
+    void addLink(Link *link) { m_links.append(link); }
+
+    void generateRandomConnectedGraph(int minNodes, int maxNodes,
+                                      int fileCount, int blocksPerFile,
+                                      int minReplica, int maxReplica);
+
     // 清空所有数据
-    void clearAll() {
+    void clearAll()
+    {
         qDeleteAll(m_links);
         qDeleteAll(m_nodes);
         m_links.clear();
@@ -77,9 +80,14 @@ private:
     ClientNode *m_linkStartNode;
     bool m_dataTransferEnabled;
 
-    QVector<ClientNode*> generateRandomNodes(int count);
-    void generateSpanningTree(QVector<ClientNode*> &nodes);
-    void addRandomExtraLinks(QVector<ClientNode*> &nodes, int extraCount);
+    QVector<ClientNode *> generateRandomNodes(int count);
+    void generateSpanningTree(QVector<ClientNode *> &nodes);
+    void addRandomExtraLinks(QVector<ClientNode *> &nodes, int extraCount);
+    void allocateRandomDataBlocks(const QVector<ClientNode *> &nodes,
+                                  int fileCount,
+                                  int blocksPerFile,
+                                  int minReplica,
+                                  int maxReplica);
 };
 
 #endif // NETWORK_CANVAS_H
