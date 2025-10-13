@@ -24,6 +24,7 @@
 #include <QPushButton>
 #include <QGroupBox>
 #include <QCheckBox>
+#include <QShortcut>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -65,6 +66,16 @@ MainWindow::MainWindow(QWidget *parent)
 
     // 创建菜单
     createMenus();
+
+    QShortcut *shortcutW = new QShortcut(QKeySequence("W"), this);
+    shortcutW->setContext(Qt::ApplicationShortcut); // 全局有效，无视焦点
+    connect(shortcutW, &QShortcut::activated, this, [this]()
+            {
+    bool exportSuccess = exportNodeFeatureMatrix();
+    if (exportSuccess) {
+        onRefreshGraph();
+        m_statusLabel->setText("已导出机器学习数据并刷新图");
+    } });
 
     // 连接信号槽
     connect(m_canvas, &NetworkCanvas::nodeSelected, this, &MainWindow::onNodeSelected);
@@ -821,22 +832,6 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
             m_isModified = true;
         }
         // 未勾选时不做任何操作（F5无效）
-        return;
-    }
-    else if (event->key() == Qt::Key_W)
-    {
-        QAction *exportMLDataAction = findChild<QAction *>("exportMLDataAction");
-        if (!exportMLDataAction || !exportMLDataAction->isChecked())
-        {
-            QMainWindow::keyPressEvent(event); // 未找到动作，按默认处理
-            return;
-        }
-        bool exportSuccess = exportNodeFeatureMatrix();
-        if (exportSuccess)
-        {
-            onRefreshGraph(); // 导出成功后刷新连通图
-        }
-        event->accept();
         return;
     }
 
