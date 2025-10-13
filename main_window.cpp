@@ -1,6 +1,7 @@
 #include "main_window.h"
 #include "monte_carlo_path_finder.h"
 #include "steiner_path_finder.h"
+#include "data_processor.h"
 #include <QMenuBar>
 #include <QMenu>
 #include <QInputDialog>
@@ -114,6 +115,12 @@ void MainWindow::createMenus()
     connect(exportDataAction, &QAction::triggered, this, &MainWindow::onExportTrainingData);
     fileMenu->addAction(exportDataAction);
 
+    QAction *exportMLDataAction = new QAction("导出机器学习训练数据", this);
+    exportMLDataAction->setCheckable(true);
+    exportMLDataAction->setObjectName("exportMLDataAction");
+    exportMLDataAction->setToolTip("勾选后按W键导出节点特征矩阵并刷新图");
+    fileMenu->addAction(exportMLDataAction);
+
     fileMenu->addSeparator(); // 添加分隔线
 
     QAction *exitAction = new QAction("退出", this);
@@ -180,7 +187,80 @@ void MainWindow::onLinkSelected(Link *link)
 void MainWindow::onNothingSelected()
 {
     clearPropertyView();
-    m_propertyView->setHeaderLabel("未选择任何对象");
+    m_propertyView->setHeaderLabels(QStringList() << "文件/数据块/节点"
+                                                  << "信息");
+
+    // 收集所有文件的所有数据块及其存储节点
+    QMap<QString, QMap<int, QVector<ClientNode *>>> fileBlockMap;
+
+    // 遍历所有节点，收集数据块信息
+    for (ClientNode *node : m_canvas->getNodes())
+    {
+        for (const DataBlockInfo &block : node->storedBlocks())
+        {
+            // 按文件ID和块编号组织数据
+            fileBlockMap[block.fileId][block.blockIndex].append(node);
+        }
+    }
+
+    if (fileBlockMap.isEmpty())
+    {
+        // 没有任何数据块时显示提示
+        QTreeWidgetItem *emptyItem = new QTreeWidgetItem();
+        emptyItem->setText(0, "无数据块信息");
+        emptyItem->setText(1, "");
+        m_propertyView->addTopLevelItem(emptyItem);
+        return;
+    }
+
+    // 遍历所有文件，添加到属性视图
+    for (auto fileIt = fileBlockMap.begin(); fileIt != fileBlockMap.end(); ++fileIt)
+    {
+        const QString &fileId = fileIt.key();
+        const QMap<int, QVector<ClientNode *>> &blockMap = fileIt.value();
+
+        // 创建文件顶层项（可展开）
+        QTreeWidgetItem *fileItem = new QTreeWidgetItem();
+        fileItem->setText(0, QString("文件 %1").arg(fileId));
+        fileItem->setText(1, QString("共 %1 个数据块").arg(blockMap.size()));
+        m_propertyView->addTopLevelItem(fileItem);
+
+        // 为每个数据块添加子项
+        for (auto blockIt = blockMap.begin(); blockIt != blockMap.end(); ++blockIt)
+        {
+            int blockIndex = blockIt.key();
+            const QVector<ClientNode *> &storageNodes = blockIt.value();
+
+            // 创建数据块子项（可展开，显示节点列表）
+            QTreeWidgetItem *blockItem = new QTreeWidgetItem(fileItem);
+            blockItem->setText(0, QString("数据块 %1").arg(blockIndex));
+            blockItem->setText(1, QString("共 %1 个存储节点").arg(storageNodes.size()));
+
+            // 为每个存储节点添加子项（每行显示一个节点）
+            for (ClientNode *node : storageNodes)
+            {
+                // 查找该节点中该数据块的具体信息（主块/副本）
+                QString nodeType;
+                for (const DataBlockInfo &b : node->storedBlocks())
+                {
+                    if (b.fileId == fileId && b.blockIndex == blockIndex)
+                    {
+                        nodeType = b.isReplica ? "副本" : "主块";
+                        break;
+                    }
+                }
+
+                // 创建节点信息子项
+                QTreeWidgetItem *nodeItem = new QTreeWidgetItem(blockItem);
+                nodeItem->setText(0, node->name()); // 节点名称
+                nodeItem->setText(1, nodeType);     // 节点类型（主块/副本）
+            }
+        }
+    }
+
+    // 自动调整列宽
+    m_propertyView->resizeColumnToContents(0);
+    m_propertyView->resizeColumnToContents(1);
 }
 
 void MainWindow::onGridSizeChanged()
@@ -348,9 +428,9 @@ void MainWindow::updatePropertyView(ClientNode *node)
             blockItem->setText(0, blockId + "数据块");
 
             // 值列：大小和占比（如"大小: 50MB, 占比: 25%"）
-            QString blockInfo = QString("大小: %.1fMB, 占比: %.0f%%")
-                                    .arg(block.size)
-                                    .arg(block.ratioInFile * 100);
+            QString blockInfo = QString("大小: %1MB, 占比: %2%")
+                                    .arg(block.size, 0, 'f', 1)
+                                    .arg(block.ratioInFile * 100, 0, 'f', 1);
             blockItem->setText(1, blockInfo);
 
             // 禁止编辑（如需编辑可扩展为双击弹窗）
@@ -706,7 +786,9 @@ void MainWindow::onRefreshGraph()
                                                m_fileCount,
                                                m_blockPerFile,
                                                m_minReplicaCount,
-                                               m_maxReplicaCount); // 重新生成连通图
+                                               m_maxReplicaCount,
+                                               m_randomBlockDistribution); // 重新生成连通图
+        onNothingSelected();
         m_statusLabel->setText("按下F5刷新"); // 状态栏提示
         m_isModified = true;                  // 标记为已修改
     }
@@ -732,11 +814,29 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
                                                    m_fileCount,
                                                    m_blockPerFile,
                                                    m_minReplicaCount,
-                                                   m_maxReplicaCount);
+                                                   m_maxReplicaCount,
+                                                   m_randomBlockDistribution);
+            onNothingSelected();
             m_statusLabel->setText("已刷新数据传输连通图");
             m_isModified = true;
         }
         // 未勾选时不做任何操作（F5无效）
+        return;
+    }
+    else if (event->key() == Qt::Key_W)
+    {
+        QAction *exportMLDataAction = findChild<QAction *>("exportMLDataAction");
+        if (!exportMLDataAction || !exportMLDataAction->isChecked())
+        {
+            QMainWindow::keyPressEvent(event); // 未找到动作，按默认处理
+            return;
+        }
+        bool exportSuccess = exportNodeFeatureMatrix();
+        if (exportSuccess)
+        {
+            onRefreshGraph(); // 导出成功后刷新连通图
+        }
+        event->accept();
         return;
     }
 
@@ -1123,4 +1223,57 @@ QString MainWindow::defaultTrainDataDirectory() const
     }
 
     return trainDir;
+}
+
+bool MainWindow::exportNodeFeatureMatrix()
+{
+    // 获取特征矩阵和特征名称
+    auto nodes = m_canvas->getNodes();
+    if (nodes.isEmpty())
+    {
+        QMessageBox::warning(this, "导出失败", "当前无节点数据，无法导出特征矩阵");
+        return false;
+    }
+
+    auto featureMatrix = DataProcessor::generateFeatureMatrix(nodes);
+    // auto featureNames = DataProcessor::getFeatureNames();
+
+    // 确保导出目录存在
+    QString exportDir = defaultTrainDataDirectory();
+    QDir dir;
+    if (!dir.exists(exportDir) && !dir.mkpath(exportDir))
+    {
+        QMessageBox::warning(this, "导出失败", "无法创建导出目录: " + exportDir);
+        return false;
+    }
+
+    // 生成带时间戳的文件名
+    QString timeStamp = QDateTime::currentDateTime().toString("yyyyMMddHHmmss");
+    QString filePath = exportDir + "/node_features_" + timeStamp + ".csv";
+
+    // 写入CSV文件
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
+    {
+        QMessageBox::warning(this, "导出失败", "无法打开文件: " + file.errorString());
+        return false;
+    }
+
+    QTextStream out(&file);
+    // 写入特征名称行
+    // out << featureNames.join(",") << "\n";
+    // 写入特征矩阵数据
+    for (const auto &nodeFeatures : featureMatrix)
+    {
+        QStringList strFeatures;
+        for (double val : nodeFeatures)
+        {
+            strFeatures.append(QString::number(val, 'f', 6)); // 保留6位小数
+        }
+        out << strFeatures.join(",") << "\n";
+    }
+
+    file.close();
+    m_statusLabel->setText(QString("已导出特征矩阵至: %1").arg(filePath));
+    return true;
 }

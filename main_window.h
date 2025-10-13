@@ -50,6 +50,7 @@ private:
     QString defaultTrainDataDirectory() const;
     int fileCount() const { return m_fileCount; }
     int blockPerFile() const { return m_blockPerFile; }
+    bool exportNodeFeatureMatrix();
 
     NetworkCanvas *m_canvas;
     QTreeWidget *m_propertyView;

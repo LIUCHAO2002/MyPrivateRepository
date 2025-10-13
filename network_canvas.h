@@ -3,6 +3,8 @@
 
 #include <QWidget>
 #include <QVector>
+#include <QMap>
+#include <QPair>
 #include "client_node.h"
 #include "link.h"
 
@@ -31,7 +33,8 @@ public:
 
     void generateRandomConnectedGraph(int minNodes, int maxNodes,
                                       int fileCount, int blocksPerFile,
-                                      int minReplica, int maxReplica);
+                                      int minReplica, int maxReplica,
+                                      bool randomBlockSize);
 
     // 清空所有数据
     void clearAll()
@@ -47,6 +50,9 @@ public:
     }
 
     void setDataTransferEnabled(bool enabled) { m_dataTransferEnabled = enabled; }
+
+    double getDirectedEdgeWeight(ClientNode *source, ClientNode *target) const;
+    void clearEdgeWeightCache() { m_directedEdgeWeights.clear(); }
 
 signals:
     void nodeSelected(ClientNode *node);
@@ -87,7 +93,19 @@ private:
                                   int fileCount,
                                   int blocksPerFile,
                                   int minReplica,
-                                  int maxReplica);
+                                  int maxReplica,
+                                  bool randomBlockSize);
+
+    mutable QMap<QPair<ClientNode *, ClientNode *>, double> m_directedEdgeWeights;
+    // 归一化参数（缓存节点/链路属性的最大值，用于归一化）
+    mutable double m_maxProcessingCapability = 0;
+    mutable double m_maxBandwidth = 0;
+    mutable double m_maxDistance = 0;
+
+    // 初始化归一化参数（首次计算权重时调用）
+    void initNormalizationParams() const;
+    // 计算单条有向边的权重
+    double calculateDirectedEdgeWeight(ClientNode *source, ClientNode *target, Link *link) const;
 };
 
 #endif // NETWORK_CANVAS_H

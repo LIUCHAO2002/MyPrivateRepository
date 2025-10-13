@@ -101,17 +101,26 @@ void MonteCarloPathFinder::buildGraphData()
             continue;
 
         // 计算链路成本（综合带宽、拥塞和距离，归一化处理）
-        double bandwidthFactor = 1.0 / (1.0 + std::exp(-link->bandwidth() / 1000.0)); // 带宽越大成本越低
-        double cost = (link->congestion() * 0.5) +                                    // 拥塞权重50%
-                      ((1.0 - bandwidthFactor) * 0.3) +                               // 带宽权重30%（反向映射）
-                      (link->distance() / 100.0 * 0.2);                               // 距离权重20%（假设最大距离100）
+        // double bandwidthFactor = 1.0 / (1.0 + std::exp(-link->bandwidth() / 1000.0)); // 带宽越大成本越低
+        // double cost = (link->congestion() * 0.5) +                                    // 拥塞权重50%
+        //               ((1.0 - bandwidthFactor) * 0.3) +                               // 带宽权重30%（反向映射）
+        //               (link->distance() / 100.0 * 0.2);                               // 距离权重20%（假设最大距离100）
+
+        // 从n1到n2的有向边成本
+        double weight1 = m_canvas->getDirectedEdgeWeight(n1, n2);
+        double cost1 = (weight1 > 0) ? 1.0 / weight1 : std::numeric_limits<double>::max();
+        // 从n2到n1的有向边成本（方向不同，权重可能不同）
+        double weight2 = m_canvas->getDirectedEdgeWeight(n2, n1);
+        double cost2 = (weight2 > 0) ? 1.0 / weight2 : std::numeric_limits<double>::max();
 
         // 双向添加到邻接表（无向图）
         m_adjacencyList[n1].append(n2);
         m_adjacencyList[n2].append(n1);
         // 缓存链路成本（双向相同）
-        m_linkCosts[{n1, n2}] = cost;
-        m_linkCosts[{n2, n1}] = cost;
+        // m_linkCosts[{n1, n2}] = cost;
+        // m_linkCosts[{n2, n1}] = cost;
+        m_linkCosts[{n1, n2}] = cost1;
+        m_linkCosts[{n2, n1}] = cost2;
     }
 }
 

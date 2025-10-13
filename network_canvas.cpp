@@ -436,7 +436,8 @@ double NetworkCanvas::distance(const QPoint &p1, const QPoint &p2) const
 // 生成随机连通图（5-15个节点，基础树+随机额外链路）
 void NetworkCanvas::generateRandomConnectedGraph(int minNodes, int maxNodes,
                                                  int fileCount, int blocksPerFile,
-                                                 int minReplica, int maxReplica)
+                                                 int minReplica, int maxReplica,
+                                                 bool randomBlockSize)
 {
     clearAll(); // 先清空现有内容
 
@@ -457,7 +458,7 @@ void NetworkCanvas::generateRandomConnectedGraph(int minNodes, int maxNodes,
 
     if (m_dataTransferEnabled)
     {
-        allocateRandomDataBlocks(nodes, fileCount, blocksPerFile, minReplica, maxReplica);
+        allocateRandomDataBlocks(nodes, fileCount, blocksPerFile, minReplica, maxReplica, randomBlockSize);
     }
 
     update(); // 重绘
@@ -647,7 +648,8 @@ void NetworkCanvas::allocateRandomDataBlocks(
     int fileCount,
     int blocksPerFile,
     int minReplica,
-    int maxReplica)
+    int maxReplica,
+    bool randomBlockSize)
 {
     if (m_nodes.isEmpty() || fileCount <= 0 || blocksPerFile <= 0)
         return;
@@ -668,7 +670,17 @@ void NetworkCanvas::allocateRandomDataBlocks(
         QVector<double> blockSizes;
         for (int i = 0; i < blocksPerFile; ++i)
         {
-            double size = 10.0 + QRandomGenerator::global()->generateDouble() * 90.0;
+            double size;
+            if (randomBlockSize)
+            {
+                // 随机大小：10-100MB
+                size = 10.0 + QRandomGenerator::global()->generateDouble() * 90.0;
+            }
+            else
+            {
+                // 固定大小：50MB（可根据需求调整默认值）
+                size = 50.0;
+            }
             blockSizes.append(size);
             totalFileSize += size;
         }
@@ -715,4 +727,101 @@ void NetworkCanvas::allocateRandomDataBlocks(
             }
         }
     }
+}
+
+// 初始化归一化参数（缓存最大值）
+void NetworkCanvas::initNormalizationParams() const
+{
+    if (m_maxProcessingCapability > 0)
+        return; // 已初始化
+
+    // 计算节点属性最大值
+    for (ClientNode *node : m_nodes)
+    {
+        m_maxProcessingCapability = qMax(m_maxProcessingCapability, node->processingCapability());
+    }
+
+    // 计算链路属性最大值
+    for (Link *link : m_links)
+    {
+        m_maxBandwidth = qMax(m_maxBandwidth, link->bandwidth());
+        m_maxDistance = qMax(m_maxDistance, link->distance());
+    }
+
+    // 避免除零（设置默认最小值）
+    if (m_maxProcessingCapability <= 0)
+        m_maxProcessingCapability = 1.0;
+    if (m_maxBandwidth <= 0)
+        m_maxBandwidth = 1.0;
+    if (m_maxDistance <= 0)
+        m_maxDistance = 1.0;
+}
+
+// 计算单条有向边的权重
+double NetworkCanvas::calculateDirectedEdgeWeight(ClientNode *source, ClientNode *target, Link *link) const
+{
+    initNormalizationParams();
+
+    // 1. 归一化节点属性（映射到0-1范围）
+    double normSourceLoad = 1.0 - source->loadStatus();                                       // 源节点负载反向（0-1）
+    double normTargetProcessing = target->processingCapability() / m_maxProcessingCapability; // 目标节点处理能力（0-1）
+    double normTargetStability = target->stability();                                         // 目标节点稳定性（已在0-1）
+
+    // 2. 归一化链路属性（映射到0-1范围）
+    double normBandwidth = link->bandwidth() / m_maxBandwidth;            // 带宽（0-1）
+    double normCongestion = 1.0 - link->congestion();                     // 拥塞反向（0-1）
+    double normDistance = 1.0 / (1.0 + link->distance() / m_maxDistance); // 距离反向（0-1）
+
+    // 3. 加权计算总价值（权重系数可根据业务调整）
+    const double wLoad = 0.15;       // 源节点负载权重
+    const double wProcessing = 0.25; // 目标节点处理能力权重
+    const double wStability = 0.1;   // 目标节点稳定性权重
+    const double wBandwidth = 0.2;   // 链路带宽权重
+    const double wCongestion = 0.2;  // 链路拥塞权重
+    const double wDistance = 0.1;    // 链路距离权重
+
+    double totalValue =
+        wLoad * normSourceLoad +
+        wProcessing * normTargetProcessing +
+        wStability * normTargetStability +
+        wBandwidth * normBandwidth +
+        wCongestion * normCongestion +
+        wDistance * normDistance;
+
+    return totalValue;
+}
+
+// 获取有向边权重（从源到目标）
+double NetworkCanvas::getDirectedEdgeWeight(ClientNode *source, ClientNode *target) const
+{
+    if (!source || !target)
+        return 0.0;
+
+    // 检查缓存，避免重复计算
+    auto key = qMakePair(source, target);
+    if (m_directedEdgeWeights.contains(key))
+    {
+        return m_directedEdgeWeights[key];
+    }
+
+    // 查找连接源和目标的链路
+    Link *link = nullptr;
+    for (Link *l : m_links)
+    {
+        if ((l->node1() == source && l->node2() == target) ||
+            (l->node1() == target && l->node2() == source))
+        {
+            link = l;
+            break;
+        }
+    }
+
+    if (!link)
+        return 0.0; // 无直接连接的链路
+
+    // 计算权重（有向性体现在源和目标的属性差异）
+    double weight = calculateDirectedEdgeWeight(source, target, link);
+    m_directedEdgeWeights[key] = weight; // 缓存结果
+
+    return weight;
 }
