@@ -30,7 +30,7 @@ private slots:
     void onSaveFile();   // 保存文件
     void onSaveAsFile(); // 另存为
     void onOpenFile();   // 打开文件
-    void onClearAll(); 
+    void onClearAll();
     void onRefreshGraph();
     void onExportTrainingData();
     void onFindOptimalPath();
@@ -38,6 +38,7 @@ private slots:
 
 private:
     void createMenus();
+    void createShortcut();
     void updatePropertyView(ClientNode *node);
     void updatePropertyView(Link *link);
     void clearPropertyView();
@@ -51,6 +52,8 @@ private:
     int fileCount() const { return m_fileCount; }
     int blockPerFile() const { return m_blockPerFile; }
     bool exportNodeFeatureMatrix();
+    void loadSettings(); // 加载配置
+    void saveSettings(); // 保存配置
 
     NetworkCanvas *m_canvas;
     QTreeWidget *m_propertyView;
@@ -58,7 +61,7 @@ private:
     QString m_currentFileName; // 当前文件名
     bool m_isModified;         // 文件是否被修改
 
-    QLabel* m_statusLabel;
+    QLabel *m_statusLabel;
 
     int m_minNodeCount;
     int m_maxNodeCount;
@@ -68,6 +71,8 @@ private:
     bool m_randomBlockDistribution = false;
     int m_minReplicaCount = 1;
     int m_maxReplicaCount = 2;
+
+    bool m_autoAnnotateEnabled;
 };
 
 #endif // MAIN_WINDOW_H

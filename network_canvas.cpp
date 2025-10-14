@@ -113,7 +113,7 @@ void NetworkCanvas::paintEvent(QPaintEvent *event)
         QPoint p2 = link->node2()->position() * m_gridSize;
 
         // 选中的链路使用不同样式
-        if (link == m_selectedLink)
+        if (link == m_selectedLink || isLinkSelected(link))
         {
             painter.setPen(QPen(Qt::blue, 3));
         }
@@ -146,7 +146,7 @@ void NetworkCanvas::paintEvent(QPaintEvent *event)
         QPoint pos = node->position() * m_gridSize;
 
         // 选中的节点使用不同颜色
-        if (node == m_selectedNode)
+        if (node == m_selectedNode || isNodeSelected(node))
         {
             painter.setBrush(Qt::yellow);
         }
@@ -161,6 +161,7 @@ void NetworkCanvas::paintEvent(QPaintEvent *event)
             }
             else
             {
+#if 0
                 // 同色系（蓝色系）设置：固定色相=240（纯蓝）
                 int hue = 240;
                 // 饱和度固定为200（保证蓝色纯度）
@@ -172,6 +173,8 @@ void NetworkCanvas::paintEvent(QPaintEvent *event)
                 QColor color;
                 color.setHsl(hue, saturation, lightness);
                 painter.setBrush(color);
+#endif
+                painter.setBrush(QColor(225, 225, 255));
             }
         }
 
@@ -193,10 +196,29 @@ void NetworkCanvas::mousePressEvent(QMouseEvent *event)
         ClientNode *clickedNode = findNodeAt(event->pos());
         if (clickedNode)
         {
-            m_selectedNode = clickedNode;
-            m_selectedLink = nullptr;
-            m_draggingNode = true;
-            m_draggedNode = clickedNode;
+            if (m_autoLabeling)
+            {
+                if (isNodeSelected(clickedNode))
+                {
+                    m_selectedNodes.removeOne(clickedNode);
+                }
+                else
+                {
+                    m_selectedNodes.append(clickedNode);
+                }
+                m_selectedNode = nullptr;
+                m_selectedLink = nullptr;
+                // m_selectedLinks.clear();
+            }
+            else
+            {
+                m_selectedNode = clickedNode;
+                m_selectedLink = nullptr;
+                // m_draggingNode = true;
+                // m_draggedNode = clickedNode;
+                m_selectedNodes.clear();
+                m_selectedLinks.clear();
+            }
             emit nodeSelected(clickedNode);
             update();
             if (!m_linkStartNode)
@@ -209,8 +231,28 @@ void NetworkCanvas::mousePressEvent(QMouseEvent *event)
         Link *clickedLink = findLinkAt(event->pos());
         if (clickedLink)
         {
-            m_selectedLink = clickedLink;
-            m_selectedNode = nullptr;
+            if (m_autoLabeling)
+            {
+                if (isLinkSelected(clickedLink))
+                {
+                    m_selectedLinks.removeOne(clickedLink);
+                }
+                else
+                {
+                    m_selectedLinks.append(clickedLink);
+                }
+                m_selectedLink = nullptr;
+                m_selectedNode = nullptr;
+                // m_selectedNodes.clear();
+            }
+            else
+            {
+                m_selectedLink = clickedLink;
+                m_selectedNode = nullptr;
+
+                m_selectedNodes.clear();
+                m_selectedLinks.clear();
+            }
             emit linkSelected(clickedLink);
             update();
             return;
@@ -248,6 +290,8 @@ void NetworkCanvas::mousePressEvent(QMouseEvent *event)
         // 未点击任何对象
         m_selectedNode = nullptr;
         m_selectedLink = nullptr;
+        m_selectedNodes.clear();
+        m_selectedLinks.clear();
         emit nothingSelected();
         update();
     }
@@ -824,4 +868,46 @@ double NetworkCanvas::getDirectedEdgeWeight(ClientNode *source, ClientNode *targ
     m_directedEdgeWeights[key] = weight; // 缓存结果
 
     return weight;
+}
+
+void NetworkCanvas::setBestPath(const QVector<ClientNode *> &path)
+{
+    if (path.isEmpty() || m_autoLabeling != true)
+    {
+        m_selectedNodes.clear();
+        m_selectedLinks.clear();
+        return;
+    }
+
+    m_selectedNodes.clear();
+    m_selectedLinks.clear();
+
+    for (ClientNode *node : path)
+    {
+        if (node && !m_selectedNodes.contains(node))
+        {
+            m_selectedNodes.append(node);
+        }
+    }
+
+    for (int i = 0; i < path.size() - 1; ++i)
+    {
+        ClientNode *from = path[i];
+        ClientNode *to = path[i + 1];
+        if (!from || !to)
+            continue;
+
+        for (Link *link : m_links)
+        {
+            if (!link)
+                continue;
+            bool isMatch = (link->node1() == from && link->node2() == to) ||
+                           (link->node1() == to && link->node2() == from);
+
+            if (isMatch && !m_selectedLinks.contains(link))
+            {
+                m_selectedLinks.append(link);
+            }
+        }
+    }
 }

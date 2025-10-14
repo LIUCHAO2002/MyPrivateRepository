@@ -287,3 +287,43 @@ QVector<QVector<double>> DataProcessor::generateFeatureMatrix(const QVector<Clie
 
     return matrix;
 }
+
+QVector<QVector<double>> DataProcessor::generateFeatureMatrix(const QVector<Link *> &links)
+{
+    QVector<QVector<double>> matrix;
+    if (links.isEmpty())
+        return matrix;
+
+    // 1. 计算归一化所需的最大值（带宽和距离）
+    double maxBandwidth = 0, maxDistance = 0;
+    for (Link *link : links)
+    {
+        if (!link)
+            continue; // 跳过无效链路
+        maxBandwidth = qMax(maxBandwidth, link->bandwidth());
+        maxDistance = qMax(maxDistance, link->distance());
+    }
+
+    // 2. 为每个链路生成特征向量
+    for (Link *link : links)
+    {
+        if (!link)
+            continue; // 跳过无效链路
+
+        QVector<double> features;
+
+        features.append(static_cast<double>(link->node1()->id().toDouble()));
+        features.append(static_cast<double>(link->node2()->id().toDouble()));
+
+        // 归一化带宽（避免除零）
+        features.append(maxBandwidth > 0 ? link->bandwidth() / maxBandwidth : 0);
+        // 归一化距离（避免除零）
+        features.append(maxDistance > 0 ? link->distance() / maxDistance : 0);
+        // 拥塞程度（已在[0,1]范围，无需额外处理）
+        features.append(link->congestion());
+
+        matrix.append(features);
+    }
+
+    return matrix;
+}

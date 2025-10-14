@@ -45,6 +45,8 @@ public:
         m_nodes.clear();
         m_selectedNode = nullptr;
         m_selectedLink = nullptr;
+        m_selectedNodes.clear();
+        m_selectedLinks.clear();
         ClientNode::resetNextId();
         update();
     }
@@ -53,6 +55,17 @@ public:
 
     double getDirectedEdgeWeight(ClientNode *source, ClientNode *target) const;
     void clearEdgeWeightCache() { m_directedEdgeWeights.clear(); }
+
+    void setAutoLabeling(bool enabled) { m_autoLabeling = enabled; }
+
+    void setBestPath(const QVector<ClientNode *> &path);
+    void clearBestPath()
+    {
+        m_selectedNodes.clear();
+        m_selectedLinks.clear();
+    };
+    const QVector<ClientNode *> &bestPathNode() const { return m_selectedNodes; }
+    const QVector<Link *> &bestPathLink() const { return m_selectedLinks; }
 
 signals:
     void nodeSelected(ClientNode *node);
@@ -85,6 +98,10 @@ private:
     ClientNode *m_draggedNode;
     ClientNode *m_linkStartNode;
     bool m_dataTransferEnabled;
+    bool m_autoLabeling = false;
+    QVector<ClientNode *> m_bestPath;
+    QVector<ClientNode *> m_selectedNodes;
+    QVector<Link *> m_selectedLinks;
 
     QVector<ClientNode *> generateRandomNodes(int count);
     void generateSpanningTree(QVector<ClientNode *> &nodes);
@@ -106,6 +123,9 @@ private:
     void initNormalizationParams() const;
     // 计算单条有向边的权重
     double calculateDirectedEdgeWeight(ClientNode *source, ClientNode *target, Link *link) const;
+
+    bool isNodeSelected(ClientNode *node) const { return m_selectedNodes.contains(node); }
+    bool isLinkSelected(Link *link) const { return m_selectedLinks.contains(link); }
 };
 
 #endif // NETWORK_CANVAS_H

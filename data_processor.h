@@ -34,16 +34,7 @@ public:
     static QMap<QString, double> calculateLinkStats(const QVector<Link *> &links);
 
     static QVector<QVector<double>> generateFeatureMatrix(const QVector<ClientNode*>& nodes);
-
-private:
-    // 归一化处理（Min-Max Scaling）
-    static double normalize(double value, double min, double max);
-
-    // 标准化处理（Z-score Standardization）
-    static double standardize(double value, double mean, double std);
-
-    // 避免实例化
-    DataProcessor() = default;
+    static QVector<QVector<double>> generateFeatureMatrix(const QVector<Link*>& links);
 
     static QStringList getFeatureNames()
     {
@@ -54,6 +45,16 @@ private:
             "stability",
             "access_frequency_norm"};
     }
+
+private:
+    // 归一化处理（Min-Max Scaling）
+    static double normalize(double value, double min, double max);
+
+    // 标准化处理（Z-score Standardization）
+    static double standardize(double value, double mean, double std);
+
+    // 避免实例化
+    DataProcessor() = default;
 };
 
 #endif // DATA_PROCESSOR_H

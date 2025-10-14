@@ -25,6 +25,7 @@
 #include <QGroupBox>
 #include <QCheckBox>
 #include <QShortcut>
+#include <QSettings>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -66,16 +67,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     // 创建菜单
     createMenus();
-
-    QShortcut *shortcutW = new QShortcut(QKeySequence("W"), this);
-    shortcutW->setContext(Qt::ApplicationShortcut); // 全局有效，无视焦点
-    connect(shortcutW, &QShortcut::activated, this, [this]()
-            {
-    bool exportSuccess = exportNodeFeatureMatrix();
-    if (exportSuccess) {
-        onRefreshGraph();
-        m_statusLabel->setText("已导出机器学习数据并刷新图");
-    } });
+    createShortcut();
 
     // 连接信号槽
     connect(m_canvas, &NetworkCanvas::nodeSelected, this, &MainWindow::onNodeSelected);
@@ -84,7 +76,11 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_propertyView, &QTreeWidget::itemChanged, this, &MainWindow::onItemEdited);
 
     connect(m_canvas, &NetworkCanvas::contentModified, this, [this]()
-            { m_isModified = true; });
+            { m_isModified = true; 
+            if (m_autoAnnotateEnabled)
+        {
+            onFindOptimalPath();
+        } });
 
     m_statusLabel = new QLabel(this);
     m_statusLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
@@ -93,6 +89,8 @@ MainWindow::MainWindow(QWidget *parent)
 
     statusBar()->addWidget(m_statusLabel, 1);
     statusBar()->setStyleSheet("QStatusBar::item { border: none; }");
+
+    loadSettings();
 
     showMaximized();
 }
@@ -144,6 +142,25 @@ void MainWindow::createMenus()
     connect(m_gridSizeAction, &QAction::triggered, this, &MainWindow::onGridSizeChanged);
     viewMenu->addAction(m_gridSizeAction);
 
+    QAction *autoLabelAction = new QAction("自动标注", this);
+    autoLabelAction->setObjectName("autoLabelAction");
+    autoLabelAction->setCheckable(true); // 设置为可勾选
+    connect(autoLabelAction, &QAction::toggled, this, [this](bool checked)
+            {
+        m_canvas->setAutoLabeling(checked);
+        if (checked)
+        {
+            onFindOptimalPath();
+        }
+        else
+        {
+            m_canvas->clearBestPath();
+        }
+        m_canvas->update();  // 重绘画布
+        m_autoAnnotateEnabled = checked;
+        m_statusLabel->setText(checked ? "已启用自动标注" : "已禁用自动标注"); });
+    viewMenu->addAction(autoLabelAction);
+
     QAction *clearAction = new QAction("清空", this);
     connect(clearAction, &QAction::triggered, this, &MainWindow::onClearAll);
     viewMenu->addAction(clearAction);
@@ -177,6 +194,43 @@ void MainWindow::createMenus()
 
     QAction *shortcutAction = new QAction("快捷键", this);
     helpMenu->addAction(shortcutAction);
+}
+
+void MainWindow::createShortcut()
+{
+    QShortcut *shortcutW = new QShortcut(QKeySequence("W"), this);
+    shortcutW->setContext(Qt::ApplicationShortcut); // 全局有效，无视焦点
+    connect(shortcutW, &QShortcut::activated, this, [this]()
+            {
+    bool exportSuccess = exportNodeFeatureMatrix();
+    if (exportSuccess) {
+        onRefreshGraph();
+        m_statusLabel->setText("已导出机器学习数据并刷新图");
+    } });
+
+    QShortcut *shortcutE = new QShortcut(QKeySequence("E"), this);
+    shortcutE->setContext(Qt::ApplicationShortcut); // 全局有效，无视焦点
+    connect(shortcutE, &QShortcut::activated, this, [this]()
+            {
+    // 查找数据传输动作
+    QAction *dataTransAction = findChild<QAction *>("dataTransAction");
+    if (!dataTransAction)
+    {
+        return;
+    }
+    // 仅在勾选状态下执行刷新
+    if (dataTransAction->isChecked())
+    {
+        m_canvas->generateRandomConnectedGraph(m_minNodeCount, m_maxNodeCount,
+                                               m_fileCount,
+                                               m_blockPerFile,
+                                               m_minReplicaCount,
+                                               m_maxReplicaCount,
+                                               m_randomBlockDistribution);
+        onNothingSelected();
+        m_statusLabel->setText("已刷新数据传输连通图");
+        m_isModified = true;
+    } });
 }
 
 void MainWindow::onNodeSelected(ClientNode *node)
@@ -284,6 +338,7 @@ void MainWindow::onGridSizeChanged()
 
     if (ok)
     {
+        saveSettings();
         m_canvas->setGridSize(newSize);
     }
 }
@@ -800,41 +855,13 @@ void MainWindow::onRefreshGraph()
                                                m_maxReplicaCount,
                                                m_randomBlockDistribution); // 重新生成连通图
         onNothingSelected();
-        m_statusLabel->setText("按下F5刷新"); // 状态栏提示
-        m_isModified = true;                  // 标记为已修改
+        m_statusLabel->setText("按下E刷新"); // 状态栏提示
+        m_isModified = true;                 // 标记为已修改
     }
 }
 
 void MainWindow::keyPressEvent(QKeyEvent *event)
 {
-    // 仅处理F5键
-    if (event->key() == Qt::Key_F5)
-    {
-        // 查找数据传输动作
-        QAction *dataTransAction = findChild<QAction *>("dataTransAction");
-        if (!dataTransAction)
-        {
-            QMainWindow::keyPressEvent(event); // 未找到动作，按默认处理
-            return;
-        }
-
-        // 仅在勾选状态下执行刷新
-        if (dataTransAction->isChecked())
-        {
-            m_canvas->generateRandomConnectedGraph(m_minNodeCount, m_maxNodeCount,
-                                                   m_fileCount,
-                                                   m_blockPerFile,
-                                                   m_minReplicaCount,
-                                                   m_maxReplicaCount,
-                                                   m_randomBlockDistribution);
-            onNothingSelected();
-            m_statusLabel->setText("已刷新数据传输连通图");
-            m_isModified = true;
-        }
-        // 未勾选时不做任何操作（F5无效）
-        return;
-    }
-
     // 其他按键按默认逻辑处理
     QMainWindow::keyPressEvent(event);
 }
@@ -1036,6 +1063,9 @@ void MainWindow::onFindOptimalPath()
         return;
     }
 
+    m_canvas->setBestPath(bestPath);
+
+#if 0
     // 显示路径信息
     QString pathInfo;
     for (ClientNode *node : bestPath)
@@ -1048,6 +1078,7 @@ void MainWindow::onFindOptimalPath()
                              QString("找到最佳路径:\n%1\n节点数量: %2")
                                  .arg(pathInfo)
                                  .arg(bestPath.size()));
+#endif
 }
 
 void MainWindow::onSimulationSettings()
@@ -1179,10 +1210,7 @@ void MainWindow::onSimulationSettings()
         m_minReplicaCount = minReplicaSpin->value();
         m_maxReplicaCount = qMax(m_minReplicaCount, maxReplicaSpin->value());
 
-        // 在状态栏显示设置结果
-        // m_statusLabel->setText(QString("仿真设置已更新 - 节点数量范围: %1-%2")
-        //                            .arg(m_minNodeCount)
-        //                            .arg(m_maxNodeCount));
+        saveSettings();
     }
 }
 
@@ -1222,18 +1250,18 @@ QString MainWindow::defaultTrainDataDirectory() const
 
 bool MainWindow::exportNodeFeatureMatrix()
 {
-    // 获取特征矩阵和特征名称
+    // 获取节点和链路数据
     auto nodes = m_canvas->getNodes();
-    if (nodes.isEmpty())
+    auto links = m_canvas->getLinks();
+
+    // 检查是否有数据可导出
+    if (nodes.isEmpty() && links.isEmpty())
     {
-        QMessageBox::warning(this, "导出失败", "当前无节点数据，无法导出特征矩阵");
+        QMessageBox::warning(this, "导出失败", "当前无节点和链路数据，无法导出特征矩阵");
         return false;
     }
 
-    auto featureMatrix = DataProcessor::generateFeatureMatrix(nodes);
-    // auto featureNames = DataProcessor::getFeatureNames();
-
-    // 确保导出目录存在
+    // 创建导出目录
     QString exportDir = defaultTrainDataDirectory();
     QDir dir;
     if (!dir.exists(exportDir) && !dir.mkpath(exportDir))
@@ -1244,31 +1272,130 @@ bool MainWindow::exportNodeFeatureMatrix()
 
     // 生成带时间戳的文件名
     QString timeStamp = QDateTime::currentDateTime().toString("yyyyMMddHHmmss");
-    QString filePath = exportDir + "/node_features_" + timeStamp + ".csv";
-
-    // 写入CSV文件
+    QString filePath = exportDir + "/features_" + timeStamp + ".csv";
     QFile file(filePath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
     {
         QMessageBox::warning(this, "导出失败", "无法打开文件: " + file.errorString());
         return false;
     }
-
     QTextStream out(&file);
-    // 写入特征名称行
-    // out << featureNames.join(",") << "\n";
-    // 写入特征矩阵数据
-    for (const auto &nodeFeatures : featureMatrix)
+
+    // 生成并写入节点特征矩阵
+    if (!nodes.isEmpty())
     {
-        QStringList strFeatures;
-        for (double val : nodeFeatures)
+        QVector<QVector<double>> nodeMatrix = DataProcessor::generateFeatureMatrix(nodes);
+        out << "NodeFeatures\n"; // 节点特征标识行
+        for (const auto &features : nodeMatrix)
         {
-            strFeatures.append(QString::number(val, 'f', 6)); // 保留6位小数
+            QStringList strFeatures;
+            for (double val : features)
+                strFeatures.append(QString::number(val, 'f', 6));
+            out << strFeatures.join(",") << "\n";
         }
-        out << strFeatures.join(",") << "\n";
+    }
+
+    // 生成并写入链路特征矩阵
+    if (!links.isEmpty())
+    {
+        QVector<QVector<double>> linkMatrix = DataProcessor::generateFeatureMatrix(links);
+        out << "LinkFeatures\n"; // 链路特征标识行
+        for (const auto &features : linkMatrix)
+        {
+            QStringList strFeatures;
+            for (double val : features)
+                strFeatures.append(QString::number(val, 'f', 6));
+            out << strFeatures.join(",") << "\n";
+        }
     }
 
     file.close();
-    m_statusLabel->setText(QString("已导出特征矩阵至: %1").arg(filePath));
+
+    // 显示导出结果
+    QString info = "已导出特征矩阵至: " + filePath + "\n";
+    if (nodes.isEmpty())
+        info += "无节点数据，未导出节点特征\n";
+    if (links.isEmpty())
+        info += "无链路数据，未导出链路特征";
+    m_statusLabel->setText(info);
+
     return true;
+}
+
+void MainWindow::loadSettings()
+{
+    // 初始化QSettings（组织名、应用名可自定义）
+    QSettings settings("MyOrganization", "DistributedStorageSystem");
+
+    // 读取节点数量范围（默认5-15）
+    m_minNodeCount = settings.value("node/minCount", 5).toInt();
+    m_maxNodeCount = settings.value("node/maxCount", 15).toInt();
+
+    // 读取文件和数据块配置（默认10文件，8块/文件，非随机分布）
+    m_fileCount = settings.value("data/fileCount", 10).toInt();
+    m_blockPerFile = settings.value("data/blockPerFile", 8).toInt();
+    m_randomBlockDistribution = settings.value("data/randomDistribution", false).toBool();
+
+    // 读取副本配置（默认1-2个副本）
+    m_minReplicaCount = settings.value("replica/minCount", 1).toInt();
+    m_maxReplicaCount = settings.value("replica/maxCount", 2).toInt();
+
+    // 读取网格大小（默认50）
+    int gridSize = settings.value("view/gridSize", 50).toInt();
+    m_canvas->setGridSize(gridSize);
+
+    // 读取自动标注状态（默认关闭）
+    bool autoLabelEnabled = settings.value("view/autoLabel", false).toBool();
+    QAction *autoLabelAction = findChild<QAction *>("autoLabelAction");
+    if (autoLabelAction)
+    {
+        autoLabelAction->setChecked(autoLabelEnabled);
+        m_canvas->setAutoLabeling(autoLabelEnabled);
+    }
+
+    // 加载数据仿真勾选状态（默认不勾选）
+    bool dataSimulationEnabled = settings.value("Simulation/DataTransferEnabled", false).toBool();
+    QAction *dataTransAction = findChild<QAction *>("dataTransAction");
+    if (dataTransAction)
+    {
+        dataTransAction->setChecked(dataSimulationEnabled);
+        // 同步到画布的传输使能状态
+        m_canvas->setDataTransferEnabled(dataSimulationEnabled);
+    }
+
+    m_statusLabel->setText("配置加载成功");
+}
+
+void MainWindow::saveSettings()
+{
+    QSettings settings("MyOrganization", "DistributedStorageSystem");
+
+    // 保存节点数量范围
+    settings.setValue("node/minCount", m_minNodeCount);
+    settings.setValue("node/maxCount", m_maxNodeCount);
+
+    // 保存文件和数据块配置
+    settings.setValue("data/fileCount", m_fileCount);
+    settings.setValue("data/blockPerFile", m_blockPerFile);
+    settings.setValue("data/randomDistribution", m_randomBlockDistribution);
+
+    // 保存副本配置
+    settings.setValue("replica/minCount", m_minReplicaCount);
+    settings.setValue("replica/maxCount", m_maxReplicaCount);
+
+    // 保存网格大小
+    settings.setValue("view/gridSize", m_canvas->gridSize());
+
+    // 保存自动标注状态
+    QAction *autoLabelAction = findChild<QAction *>("autoLabelAction");
+    if (autoLabelAction)
+    {
+        settings.setValue("view/autoLabel", autoLabelAction->isChecked());
+    }
+
+    QAction *dataTransAction = findChild<QAction *>("dataTransAction");
+    if (dataTransAction)
+    {
+        settings.setValue("Simulation/DataTransferEnabled", dataTransAction->isChecked());
+    }
 }

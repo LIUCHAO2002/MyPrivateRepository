@@ -33,6 +33,7 @@ set(SOURCES
     monte_carlo_path_finder.cpp
     steiner_path_finder.cpp
     data_processor.cpp
+    utils.cpp
 )
 
 # 头文件列表
@@ -45,6 +46,7 @@ set(HEADERS
     steiner_path_finder.h
     path_search_algorithm.h
     data_processor.h
+    utils.h
 )
 
 # 创建可执行文件
