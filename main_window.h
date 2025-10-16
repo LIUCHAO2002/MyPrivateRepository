@@ -5,6 +5,7 @@
 #include <QTreeWidget>
 #include <QAction>
 #include <QLabel>
+#include <QShortcut>
 #include "network_canvas.h"
 #include "client_node.h"
 #include "link.h"
@@ -35,6 +36,8 @@ private slots:
     void onExportTrainingData();
     void onFindOptimalPath();
     void onSimulationSettings();
+    void onShortcutSettings();
+    void onShowShortcutHelp();
 
 private:
     void createMenus();
@@ -73,6 +76,9 @@ private:
     int m_maxReplicaCount = 2;
 
     bool m_autoAnnotateEnabled;
+
+    void updateShortcuts();
+    QMap<QString, QShortcut *> m_shortcuts;
 };
 
 #endif // MAIN_WINDOW_H

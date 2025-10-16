@@ -34,6 +34,8 @@ set(SOURCES
     steiner_path_finder.cpp
     data_processor.cpp
     utils.cpp
+    min_weight_cover_path.cpp
+    shortcut_settings_dialog.cpp
 )
 
 # 头文件列表
@@ -47,6 +49,8 @@ set(HEADERS
     path_search_algorithm.h
     data_processor.h
     utils.h
+    min_weight_cover_path.h
+    shortcut_settings_dialog.h
 )
 
 # 创建可执行文件

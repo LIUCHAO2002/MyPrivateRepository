@@ -1,7 +1,9 @@
 #include "main_window.h"
 #include "monte_carlo_path_finder.h"
 #include "steiner_path_finder.h"
+#include "min_weight_cover_path.h"
 #include "data_processor.h"
+#include "shortcut_settings_dialog.h"
 #include <QMenuBar>
 #include <QMenu>
 #include <QInputDialog>
@@ -26,6 +28,8 @@
 #include <QCheckBox>
 #include <QShortcut>
 #include <QSettings>
+#include <QApplication>
+#include <QScreen>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -91,6 +95,13 @@ MainWindow::MainWindow(QWidget *parent)
     statusBar()->setStyleSheet("QStatusBar::item { border: none; }");
 
     loadSettings();
+
+    updateShortcuts();
+
+#if 0
+    setWindowFlags(Qt::Window | Qt::WindowTitleHint | Qt::WindowCloseButtonHint);
+    setFixedSize(QGuiApplication::primaryScreen()->availableGeometry().size());
+#endif
 
     showMaximized();
 }
@@ -193,44 +204,75 @@ void MainWindow::createMenus()
     helpMenu->addAction(manualAction);
 
     QAction *shortcutAction = new QAction("快捷键", this);
+    connect(shortcutAction, &QAction::triggered, this, &MainWindow::onShowShortcutHelp);
     helpMenu->addAction(shortcutAction);
+
+    QAction *shortcutSettingsAction = new QAction("设置快捷键", this);
+    connect(shortcutSettingsAction, &QAction::triggered, this, &MainWindow::onShortcutSettings);
+    helpMenu->addAction(shortcutSettingsAction);
 }
 
 void MainWindow::createShortcut()
 {
-    QShortcut *shortcutW = new QShortcut(QKeySequence("W"), this);
-    shortcutW->setContext(Qt::ApplicationShortcut); // 全局有效，无视焦点
-    connect(shortcutW, &QShortcut::activated, this, [this]()
-            {
-    bool exportSuccess = exportNodeFeatureMatrix();
-    if (exportSuccess) {
-        onRefreshGraph();
-        m_statusLabel->setText("已导出机器学习数据并刷新图");
-    } });
+    QSettings settings;
+    settings.beginGroup("Shortcuts");
 
-    QShortcut *shortcutE = new QShortcut(QKeySequence("E"), this);
-    shortcutE->setContext(Qt::ApplicationShortcut); // 全局有效，无视焦点
-    connect(shortcutE, &QShortcut::activated, this, [this]()
+    // 导出机器学习数据并刷新图
+    QKeySequence exportSeq(settings.value("导出机器学习数据并刷新图", "W").toString());
+    QShortcut *exportShortcut = new QShortcut(exportSeq, this);
+    exportShortcut->setContext(Qt::ApplicationShortcut);
+    connect(exportShortcut, &QShortcut::activated, this, [this]()
             {
-    // 查找数据传输动作
-    QAction *dataTransAction = findChild<QAction *>("dataTransAction");
-    if (!dataTransAction)
-    {
-        return;
-    }
-    // 仅在勾选状态下执行刷新
-    if (dataTransAction->isChecked())
-    {
-        m_canvas->generateRandomConnectedGraph(m_minNodeCount, m_maxNodeCount,
-                                               m_fileCount,
-                                               m_blockPerFile,
-                                               m_minReplicaCount,
-                                               m_maxReplicaCount,
-                                               m_randomBlockDistribution);
-        onNothingSelected();
-        m_statusLabel->setText("已刷新数据传输连通图");
-        m_isModified = true;
-    } });
+        bool exportSuccess = exportNodeFeatureMatrix();
+        if (exportSuccess) {
+            onRefreshGraph();
+            m_statusLabel->setText("已导出机器学习数据并刷新图");
+        } });
+    m_shortcuts["导出机器学习数据并刷新图"] = exportShortcut;
+
+    // 刷新数据传输连通图
+    QKeySequence refreshSeq(settings.value("刷新数据传输连通图", "E").toString());
+    QShortcut *refreshShortcut = new QShortcut(refreshSeq, this);
+    refreshShortcut->setContext(Qt::ApplicationShortcut);
+    connect(refreshShortcut, &QShortcut::activated, this, [this]()
+            {
+        QAction *dataTransAction = findChild<QAction *>("dataTransAction");
+        if (dataTransAction && dataTransAction->isChecked()) {
+            m_canvas->generateRandomConnectedGraph(m_minNodeCount, m_maxNodeCount,
+                                                  m_fileCount, m_blockPerFile,
+                                                  m_minReplicaCount, m_maxReplicaCount,
+                                                  m_randomBlockDistribution);
+            onNothingSelected();
+            m_statusLabel->setText("已刷新数据传输连通图");
+            m_isModified = true;
+        } });
+    m_shortcuts["刷新数据传输连通图"] = refreshShortcut;
+
+    // 打开文件
+    QKeySequence openSeq(settings.value("打开文件", QKeySequence::Open).toString());
+    QShortcut *openShortcut = new QShortcut(openSeq, this);
+    connect(openShortcut, &QShortcut::activated, this, &MainWindow::onOpenFile);
+    m_shortcuts["打开文件"] = openShortcut;
+
+    // 保存文件
+    QKeySequence saveSeq(settings.value("保存文件", QKeySequence::Save).toString());
+    QShortcut *saveShortcut = new QShortcut(saveSeq, this);
+    connect(saveShortcut, &QShortcut::activated, this, &MainWindow::onSaveFile);
+    m_shortcuts["保存文件"] = saveShortcut;
+
+    // 另存为
+    QKeySequence saveAsSeq(settings.value("另存为", QKeySequence::SaveAs).toString());
+    QShortcut *saveAsShortcut = new QShortcut(saveAsSeq, this);
+    connect(saveAsShortcut, &QShortcut::activated, this, &MainWindow::onSaveAsFile);
+    m_shortcuts["另存为"] = saveAsShortcut;
+
+    // 退出
+    QKeySequence exitSeq(settings.value("退出", QKeySequence::Quit).toString());
+    QShortcut *exitShortcut = new QShortcut(exitSeq, this);
+    connect(exitShortcut, &QShortcut::activated, this, &MainWindow::close);
+    m_shortcuts["退出"] = exitShortcut;
+
+    settings.endGroup();
 }
 
 void MainWindow::onNodeSelected(ClientNode *node)
@@ -1054,7 +1096,8 @@ bool MainWindow::isGraphConnected()
 
 void MainWindow::onFindOptimalPath()
 {
-    PathCoverSolver finder(m_canvas);
+    MinWeightCoverPath finder;
+    finder.initialize(m_canvas);
     QVector<ClientNode *> bestPath = finder.findBestPath();
 
     if (bestPath.isEmpty())
@@ -1284,8 +1327,13 @@ bool MainWindow::exportNodeFeatureMatrix()
     // 生成并写入节点特征矩阵
     if (!nodes.isEmpty())
     {
-        QVector<QVector<double>> nodeMatrix = DataProcessor::generateFeatureMatrix(nodes);
-        out << "NodeFeatures\n"; // 节点特征标识行
+        std::sort(nodes.begin(), nodes.end(), [](ClientNode *a, ClientNode *b)
+                  {
+                      return a->id().toInt() < b->id().toInt(); // 按ID升序排列
+                  });
+
+        QVector<QVector<double>> nodeMatrix = DataProcessor::generateFeatureMatrix(nodes, m_canvas->bestPathNode());
+        out << "Node Features\n"; // 节点特征标识行
         for (const auto &features : nodeMatrix)
         {
             QStringList strFeatures;
@@ -1293,13 +1341,35 @@ bool MainWindow::exportNodeFeatureMatrix()
                 strFeatures.append(QString::number(val, 'f', 6));
             out << strFeatures.join(",") << "\n";
         }
+
+        QStringList nodeIds;
+        QStringList nodeVector;
+        for (const auto &node : nodes)
+        {
+            if (node)
+            {
+                if (!node->storedBlocks().isEmpty())
+                {
+                    nodeIds.append(node->id());
+                    nodeVector.append(QString::number(1));
+                }
+                else
+                {
+                    nodeVector.append(QString::number(0));
+                }
+            }
+        }
+        out << "Terminals\n"
+            << nodeIds.join(",") << "\n";
+        // out << "tensor\n"
+        //     << nodeVector.join(",") << "\n";
     }
 
     // 生成并写入链路特征矩阵
     if (!links.isEmpty())
     {
         QVector<QVector<double>> linkMatrix = DataProcessor::generateFeatureMatrix(links);
-        out << "LinkFeatures\n"; // 链路特征标识行
+        out << "Edge Features\n"; // 链路特征标识行
         for (const auto &features : linkMatrix)
         {
             QStringList strFeatures;
@@ -1307,6 +1377,22 @@ bool MainWindow::exportNodeFeatureMatrix()
                 strFeatures.append(QString::number(val, 'f', 6));
             out << strFeatures.join(",") << "\n";
         }
+
+        // out << "Edge Index:"
+        //     << "\n";
+        // QStringList sourceNode;
+        // QStringList targetNode;
+        // for (const auto &link : links)
+        // {
+        //     sourceNode.append(link->node1()->id());
+        //     sourceNode.append(link->node2()->id());
+        //     targetNode.append(link->node2()->id());
+        //     targetNode.append(link->node1()->id());
+        // }
+        // out << "sourceNode:"
+        //     << sourceNode.join(",") << "\n";
+        // out << "targetNode:"
+        //     << targetNode.join(",");
     }
 
     file.close();
@@ -1398,4 +1484,133 @@ void MainWindow::saveSettings()
     {
         settings.setValue("Simulation/DataTransferEnabled", dataTransAction->isChecked());
     }
+}
+
+void MainWindow::onShowShortcutHelp()
+{
+    // 显示当前快捷键列表
+    QString helpText = "<h3>当前快捷键</h3><table border='1' cellpadding='5'>";
+    helpText += "<tr><th>功能</th><th>快捷键</th></tr>";
+
+    // 从设置中加载当前快捷键
+    QSettings settings;
+    settings.beginGroup("Shortcuts");
+
+    QMap<QString, QString> shortcutMap = {
+        {"导出机器学习数据并刷新图", settings.value("导出机器学习数据并刷新图", "W").toString()},
+        {"刷新数据传输连通图", settings.value("刷新数据传输连通图", "E").toString()},
+        {"打开文件", settings.value("打开文件", "Ctrl+O").toString()},
+        {"保存文件", settings.value("保存文件", "Ctrl+S").toString()},
+        {"另存为", settings.value("另存为", "Ctrl+Shift+S").toString()},
+        {"退出", settings.value("退出", "Ctrl+Q").toString()}};
+
+    for (auto it = shortcutMap.begin(); it != shortcutMap.end(); ++it)
+    {
+        helpText += QString("<tr><td>%1</td><td>%2</td></tr>")
+                        .arg(it.key())
+                        .arg(it.value());
+    }
+
+    helpText += "</table><p>可在\"设置快捷键\"中修改自定义快捷键</p>";
+    QMessageBox::information(this, "快捷键说明", helpText);
+    settings.endGroup();
+}
+
+void MainWindow::onShortcutSettings()
+{
+    // 定义默认快捷键
+    QMap<QString, QKeySequence> defaultShortcuts = {
+        {"导出机器学习数据并刷新图", QKeySequence("W")},
+        {"刷新数据传输连通图", QKeySequence("E")},
+        {"打开文件", QKeySequence::Open},
+        {"保存文件", QKeySequence::Save},
+        {"另存为", QKeySequence::SaveAs},
+        {"退出", QKeySequence::Quit}};
+
+    ShortcutSettingsDialog dialog(this);
+    dialog.loadShortcuts(defaultShortcuts);
+
+    if (dialog.exec() == QDialog::Accepted)
+    {
+        // 清除现有快捷键并重新加载
+        for (auto shortcut : m_shortcuts)
+        {
+            delete shortcut;
+        }
+        m_shortcuts.clear();
+
+        createShortcut(); // 应用新的快捷键设置
+        m_statusLabel->setText("快捷键设置已更新");
+    }
+}
+
+void MainWindow::updateShortcuts()
+{
+    // 清除现有快捷键
+    for (auto shortcut : m_shortcuts)
+    {
+        delete shortcut;
+    }
+    m_shortcuts.clear();
+
+    // 从设置加载快捷键
+    QSettings settings;
+    settings.beginGroup("Shortcuts");
+
+    // 导出机器学习数据
+    QKeySequence exportSeq(settings.value("导出机器学习数据并刷新图", "W").toString());
+    QShortcut *exportShortcut = new QShortcut(exportSeq, this);
+    exportShortcut->setContext(Qt::ApplicationShortcut);
+    connect(exportShortcut, &QShortcut::activated, this, [this]()
+            {
+        bool exportSuccess = exportNodeFeatureMatrix();
+        if (exportSuccess) {
+            onRefreshGraph();
+            m_statusLabel->setText("已导出机器学习数据并刷新图");
+        } });
+    m_shortcuts["导出机器学习数据并刷新图"] = exportShortcut;
+
+    // 刷新数据传输连通图
+    QKeySequence refreshSeq(settings.value("刷新数据传输连通图", "E").toString());
+    QShortcut *refreshShortcut = new QShortcut(refreshSeq, this);
+    refreshShortcut->setContext(Qt::ApplicationShortcut);
+    connect(refreshShortcut, &QShortcut::activated, this, [this]()
+            {
+        QAction *dataTransAction = findChild<QAction *>("dataTransAction");
+        if (dataTransAction && dataTransAction->isChecked()) {
+            m_canvas->generateRandomConnectedGraph(m_minNodeCount, m_maxNodeCount,
+                                                  m_fileCount, m_blockPerFile,
+                                                  m_minReplicaCount, m_maxReplicaCount,
+                                                  m_randomBlockDistribution);
+            onNothingSelected();
+            m_statusLabel->setText("已刷新数据传输连通图");
+            m_isModified = true;
+        } });
+    m_shortcuts["刷新数据传输连通图"] = refreshShortcut;
+
+    // 打开文件
+    QKeySequence openSeq(settings.value("打开文件", QKeySequence::Open).toString());
+    QShortcut *openShortcut = new QShortcut(openSeq, this);
+    connect(openShortcut, &QShortcut::activated, this, &MainWindow::onOpenFile);
+    m_shortcuts["打开文件"] = openShortcut;
+
+    // 保存文件
+    QKeySequence saveSeq(settings.value("保存文件", QKeySequence::Save).toString());
+    QShortcut *saveShortcut = new QShortcut(saveSeq, this);
+    connect(saveShortcut, &QShortcut::activated, this, &MainWindow::onSaveFile);
+    m_shortcuts["保存文件"] = saveShortcut;
+
+    // 另存为
+    QKeySequence saveAsSeq(settings.value("另存为", QKeySequence::SaveAs).toString());
+    QShortcut *saveAsShortcut = new QShortcut(saveAsSeq, this);
+    connect(saveAsShortcut, &QShortcut::activated, this, &MainWindow::onSaveAsFile);
+    m_shortcuts["另存为"] = saveAsShortcut;
+
+    // 退出
+    QKeySequence exitSeq(settings.value("退出", QKeySequence::Quit).toString());
+    QShortcut *exitShortcut = new QShortcut(exitSeq, this);
+    connect(exitShortcut, &QShortcut::activated, this, &MainWindow::close);
+    m_shortcuts["退出"] = exitShortcut;
+
+    settings.endGroup();
 }

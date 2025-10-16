@@ -1,6 +1,9 @@
 #include "data_processor.h"
 #include <cmath>
 #include <QVector>
+#include <QSet>
+
+#define MinMaxScaler
 
 // 节点属性统计量计算（存储所有必要的统计参数）
 QMap<QString, double> DataProcessor::calculateNodeStats(const QVector<ClientNode *> &nodes)
@@ -251,12 +254,14 @@ QMap<QString, double> DataProcessor::processLinkFeatures(Link *link,
     return result;
 }
 
-QVector<QVector<double>> DataProcessor::generateFeatureMatrix(const QVector<ClientNode *> &nodes)
+QVector<QVector<double>> DataProcessor::generateFeatureMatrix(const QVector<ClientNode *> &nodes,
+                                                              const QVector<ClientNode *> &bestPath)
 {
     QVector<QVector<double>> matrix;
     if (nodes.isEmpty())
         return matrix;
 
+#ifndef MinMaxScaler
     // 1. 计算归一化所需的最大值
     double maxStorage = 0, maxComputing = 0, maxAccess = 0;
     for (ClientNode *node : nodes)
@@ -265,12 +270,14 @@ QVector<QVector<double>> DataProcessor::generateFeatureMatrix(const QVector<Clie
         maxComputing = qMax(maxComputing, node->computingPower());
         maxAccess = qMax(maxAccess, node->accessFrequency());
     }
+#endif
 
     // 2. 生成每个节点的特征向量
     for (ClientNode *node : nodes)
     {
         QVector<double> features;
 
+#ifndef MinMaxScaler
         // 归一化存储容量
         features.append(maxStorage > 0 ? node->storageCapacity() / maxStorage : 0);
         // 归一化计算能力
@@ -281,6 +288,16 @@ QVector<QVector<double>> DataProcessor::generateFeatureMatrix(const QVector<Clie
         features.append(node->stability());
         // 归一化访问频率
         features.append(maxAccess > 0 ? node->accessFrequency() / maxAccess : 0);
+
+        features.append(bestPath.contains(node) ? 1 : 0);
+#else
+        features.append(node->storageCapacity());
+        features.append(node->computingPower());
+        features.append(node->loadStatus());
+        features.append(node->stability());
+        features.append(node->accessFrequency());
+        features.append(bestPath.contains(node) ? 1 : 0);
+#endif
 
         matrix.append(features);
     }
@@ -294,6 +311,7 @@ QVector<QVector<double>> DataProcessor::generateFeatureMatrix(const QVector<Link
     if (links.isEmpty())
         return matrix;
 
+#ifndef MinMaxScaler
     // 1. 计算归一化所需的最大值（带宽和距离）
     double maxBandwidth = 0, maxDistance = 0;
     for (Link *link : links)
@@ -303,6 +321,7 @@ QVector<QVector<double>> DataProcessor::generateFeatureMatrix(const QVector<Link
         maxBandwidth = qMax(maxBandwidth, link->bandwidth());
         maxDistance = qMax(maxDistance, link->distance());
     }
+#endif
 
     // 2. 为每个链路生成特征向量
     for (Link *link : links)
@@ -315,14 +334,28 @@ QVector<QVector<double>> DataProcessor::generateFeatureMatrix(const QVector<Link
         features.append(static_cast<double>(link->node1()->id().toDouble()));
         features.append(static_cast<double>(link->node2()->id().toDouble()));
 
+#ifndef MinMaxScaler
         // 归一化带宽（避免除零）
         features.append(maxBandwidth > 0 ? link->bandwidth() / maxBandwidth : 0);
         // 归一化距离（避免除零）
         features.append(maxDistance > 0 ? link->distance() / maxDistance : 0);
         // 拥塞程度（已在[0,1]范围，无需额外处理）
         features.append(link->congestion());
+#else
+        features.append(link->bandwidth());
+        // features.append(link->distance());
+        features.append(link->congestion());
+#endif
 
         matrix.append(features);
+
+        // 有向图
+        // features.clear();
+        // features.append(static_cast<double>(link->node2()->id().toDouble()));
+        // features.append(static_cast<double>(link->node1()->id().toDouble()));
+        // features.append(link->bandwidth());
+        // features.append(link->congestion());
+        // matrix.append(features);
     }
 
     return matrix;
