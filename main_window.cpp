@@ -1314,7 +1314,7 @@ bool MainWindow::exportNodeFeatureMatrix()
     }
 
     // 生成带时间戳的文件名
-    QString timeStamp = QDateTime::currentDateTime().toString("yyyyMMddHHmmss");
+    QString timeStamp = QDateTime::currentDateTime().toString("yyyyMMddHHmmsszzz");
     QString filePath = exportDir + "/features_" + timeStamp + ".csv";
     QFile file(filePath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
