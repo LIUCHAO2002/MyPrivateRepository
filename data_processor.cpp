@@ -291,12 +291,15 @@ QVector<QVector<double>> DataProcessor::generateFeatureMatrix(const QVector<Clie
 
         features.append(bestPath.contains(node) ? 1 : 0);
 #else
+        features.append(node->position().x());
+        features.append(node->position().y());
         features.append(node->storageCapacity());
         features.append(node->computingPower());
         features.append(node->loadStatus());
         features.append(node->stability());
         features.append(node->accessFrequency());
-        features.append(bestPath.contains(node) ? 1 : 0);
+        features.append(node->storedBlocks().isEmpty() ? 0 : 1);
+        // features.append(bestPath.contains(node) ? 1 : 0);
 #endif
 
         matrix.append(features);
@@ -305,7 +308,8 @@ QVector<QVector<double>> DataProcessor::generateFeatureMatrix(const QVector<Clie
     return matrix;
 }
 
-QVector<QVector<double>> DataProcessor::generateFeatureMatrix(const QVector<Link *> &links)
+QVector<QVector<double>> DataProcessor::generateFeatureMatrix(const QVector<Link *> &links,
+                                                              const QVector<Link *> &bestPath)
 {
     QVector<QVector<double>> matrix;
     if (links.isEmpty())
@@ -343,7 +347,7 @@ QVector<QVector<double>> DataProcessor::generateFeatureMatrix(const QVector<Link
         features.append(link->congestion());
 #else
         features.append(link->bandwidth());
-        // features.append(link->distance());
+        features.append(link->distance());
         features.append(link->congestion());
 #endif
 

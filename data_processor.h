@@ -33,18 +33,32 @@ public:
     // 预计算链路属性的统计量
     static QMap<QString, double> calculateLinkStats(const QVector<Link *> &links);
 
-    static QVector<QVector<double>> generateFeatureMatrix(const QVector<ClientNode*>& nodes, 
-                                                          const QVector<ClientNode*>& bestPath = QVector<ClientNode*>());
-    static QVector<QVector<double>> generateFeatureMatrix(const QVector<Link*>& links);
+    static QVector<QVector<double>> generateFeatureMatrix(const QVector<ClientNode *> &nodes,
+                                                          const QVector<ClientNode *> &bestPath = QVector<ClientNode *>());
+    static QVector<QVector<double>> generateFeatureMatrix(const QVector<Link *> &links,
+                                                          const QVector<Link *> &bestPath = QVector<Link *>());
 
-    static QStringList getFeatureNames()
+    static QStringList getNodeFeatureNames()
     {
         return {
-            "storage_capacity_norm",
-            "computing_power_norm",
-            "load_status",
+            "pos_x",
+            "pos_y",
+            "storageCapacity",
+            "computingPower",
+            "loadStatus",
             "stability",
-            "access_frequency_norm"};
+            "accessFrequency",
+            "isTerminal"};
+    }
+
+    static QStringList getLinkFeatureNames()
+    {
+        return {
+            "sourceNode",
+            "targetNode",
+            "bandwidth",
+            "distance",
+            "congestion"};
     }
 
 private:

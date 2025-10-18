@@ -1333,7 +1333,9 @@ bool MainWindow::exportNodeFeatureMatrix()
                   });
 
         QVector<QVector<double>> nodeMatrix = DataProcessor::generateFeatureMatrix(nodes, m_canvas->bestPathNode());
+        QStringList nodeFeatureName = DataProcessor::getNodeFeatureNames();
         out << "Node Features\n"; // 节点特征标识行
+        out << nodeFeatureName.join(",") << "\n";
         for (const auto &features : nodeMatrix)
         {
             QStringList strFeatures;
@@ -1341,35 +1343,15 @@ bool MainWindow::exportNodeFeatureMatrix()
                 strFeatures.append(QString::number(val, 'f', 6));
             out << strFeatures.join(",") << "\n";
         }
-
-        QStringList nodeIds;
-        QStringList nodeVector;
-        for (const auto &node : nodes)
-        {
-            if (node)
-            {
-                if (!node->storedBlocks().isEmpty())
-                {
-                    nodeIds.append(node->id());
-                    nodeVector.append(QString::number(1));
-                }
-                else
-                {
-                    nodeVector.append(QString::number(0));
-                }
-            }
-        }
-        out << "Terminals\n"
-            << nodeIds.join(",") << "\n";
-        // out << "tensor\n"
-        //     << nodeVector.join(",") << "\n";
     }
 
     // 生成并写入链路特征矩阵
     if (!links.isEmpty())
     {
-        QVector<QVector<double>> linkMatrix = DataProcessor::generateFeatureMatrix(links);
+        QVector<QVector<double>> linkMatrix = DataProcessor::generateFeatureMatrix(links, m_canvas->bestPathLink());
+        QStringList linkFeatureName = DataProcessor::getLinkFeatureNames();
         out << "Edge Features\n"; // 链路特征标识行
+        out << linkFeatureName.join(",") << "\n";
         for (const auto &features : linkMatrix)
         {
             QStringList strFeatures;
